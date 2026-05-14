@@ -1,0 +1,15 @@
+{
+  "name": "endorium-nexus",
+  "version-string": "0.1.0",
+  "builtin-baseline": "7f3f5d3f9d9e7d3e1a5c11d88f9c0f6a0198a784",
+  "dependencies": [
+    "argon2",
+    "drogon",
+    "libpqxx",
+    "libuv",
+    "nlohmann-json",
+    "openssl",
+    "zlib"
+  ]
+}
+

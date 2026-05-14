@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libargon2-dev \
+            libdrogon-dev \
+            libpqxx-dev \
+            libssl-dev \
+            libuv1-dev \
+            nlohmann-json3-dev \
+            zlib1g-dev \
+            npm
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Configure CMake
+        run: cmake --preset dev
+
+      - name: Build backend
+        run: cmake --build --preset dev
+
+      - name: Backend tests
+        run: ctest --test-dir build/dev --output-on-failure
+
+      - name: Frontend lint
+        run: cd frontend && npm run lint && npm run typecheck
+
+      - name: Frontend tests
+        run: cd frontend && npm run test -- --run
+
+      - name: Frontend build
+        run: cd frontend && npm run build

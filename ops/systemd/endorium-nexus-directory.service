@@ -1,0 +1,22 @@
+[Unit]
+Description=Endorium Nexus Directory and Kerberos Runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=-/etc/endorium-nexus/endorium-nexus.env
+WorkingDirectory=/var/lib/endorium-nexus
+ExecStart=/usr/bin/nexus-directory
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+StateDirectory=endorium-nexus
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+

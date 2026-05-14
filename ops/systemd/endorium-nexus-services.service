@@ -1,0 +1,21 @@
+[Unit]
+Description=Endorium Nexus Service Supervisor
+After=network-online.target endorium-nexus-api.service
+Wants=network-online.target endorium-nexus-api.service
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=-/etc/endorium-nexus/endorium-nexus.env
+WorkingDirectory=/var/lib/endorium-nexus
+ExecStart=/usr/bin/nexus-services
+StateDirectory=endorium-nexus
+RuntimeDirectory=endorium-nexus
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

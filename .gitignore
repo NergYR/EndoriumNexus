@@ -1,0 +1,25 @@
+# Build outputs
+/build/
+/dist/
+/coverage/
+
+# Frontend artifacts
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.vite/
+/frontend/coverage/
+
+# Runtime state
+/var/
+/tmp/
+/logs/
+/.env.local
+
+# IDE / tooling
+/.DS_Store
+/.idea/
+/.vscode/
+
+
+.env*
+.editorconfig

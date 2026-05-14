@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --bg: #06111f;
+  --bg-soft: #0c1830;
+  --panel: rgba(10, 22, 42, 0.85);
+  --panel-border: rgba(74, 128, 255, 0.32);
+  --accent-start: #4a80ff;
+  --accent-end: #3fffff;
+  --text-main: #e7f4ff;
+  --text-soft: #9ab7d6;
+  --danger: #ff5a7a;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(74, 128, 255, 0.22), transparent 32%),
+    radial-gradient(circle at top right, rgba(63, 255, 255, 0.12), transparent 24%),
+    linear-gradient(180deg, #040c18 0%, #091222 40%, #03060d 100%);
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(74, 128, 255, 0.2), transparent 25%),
+    radial-gradient(circle at 85% 15%, rgba(63, 255, 255, 0.12), transparent 20%),
+    linear-gradient(180deg, #040b16 0%, #09111f 100%);
+  color: var(--text-main);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.glow-panel {
+  position: relative;
+  border: 1px solid var(--panel-border);
+  background: linear-gradient(180deg, rgba(12, 24, 48, 0.92), rgba(8, 17, 33, 0.85));
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+    0 10px 40px rgba(7, 11, 22, 0.45),
+    0 0 36px rgba(74, 128, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.glow-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(120deg, rgba(74, 128, 255, 0.2), rgba(63, 255, 255, 0.08));
+  opacity: 0.28;
+}
+
+.accent-gradient {
+  background-image: linear-gradient(90deg, var(--accent-start), var(--accent-end));
+}
+
+.text-accent {
+  background-image: linear-gradient(90deg, var(--accent-start), var(--accent-end));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.grid-sheen {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
