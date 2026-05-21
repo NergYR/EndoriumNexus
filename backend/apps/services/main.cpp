@@ -55,9 +55,37 @@ nexus::core::Config config_from_json(const nexus::core::Config& current, const J
     updated.ldap.port = read_port(body, "ldapPort", current.ldap.port);
     updated.ldaps.port = read_port(body, "ldapsPort", current.ldaps.port);
     updated.kerberos.port = read_port(body, "kerberosPort", current.kerberos.port);
+    updated.kpasswd.port = read_port(body, "kpasswdPort", current.kpasswd.port);
+    updated.global_catalog.port = read_port(body, "globalCatalogPort", current.global_catalog.port);
+    updated.rpc_endpoint_mapper.port = read_port(body, "rpcPort", current.rpc_endpoint_mapper.port);
+    updated.smb.port = read_port(body, "smbPort", current.smb.port);
     updated.dns_tcp.port = read_port(body, "dnsTcpPort", current.dns_tcp.port);
     updated.dns_udp.port = read_port(body, "dnsUdpPort", current.dns_udp.port);
     updated.dhcp.port = read_port(body, "dhcpPort", current.dhcp.port);
+    if (body.isMember("ports") && body["ports"].isObject()) {
+        const auto& ports = body["ports"];
+        if (ports.isMember("ldap")) updated.ldap.port = ports["ldap"].asInt();
+        if (ports.isMember("ldaps")) updated.ldaps.port = ports["ldaps"].asInt();
+        if (ports.isMember("kerberos")) updated.kerberos.port = ports["kerberos"].asInt();
+        if (ports.isMember("kpasswd")) updated.kpasswd.port = ports["kpasswd"].asInt();
+        if (ports.isMember("globalCatalog")) updated.global_catalog.port = ports["globalCatalog"].asInt();
+        if (ports.isMember("rpc")) updated.rpc_endpoint_mapper.port = ports["rpc"].asInt();
+        if (ports.isMember("smb")) updated.smb.port = ports["smb"].asInt();
+        if (ports.isMember("dnsTcp")) updated.dns_tcp.port = ports["dnsTcp"].asInt();
+        if (ports.isMember("dnsUdp")) updated.dns_udp.port = ports["dnsUdp"].asInt();
+        if (ports.isMember("dhcp")) updated.dhcp.port = ports["dhcp"].asInt();
+    }
+    if (body.isMember("directory") && body["directory"].isObject()) {
+        const auto& directory = body["directory"];
+        updated.directory.base_dn = directory.isMember("baseDn") ? directory["baseDn"].asString() : current.directory.base_dn;
+        updated.directory.organization = directory.isMember("organization") ? directory["organization"].asString() : current.directory.organization;
+        updated.directory.realm = directory.isMember("realm") ? directory["realm"].asString() : current.directory.realm;
+        updated.directory.ad_port_profile = directory.isMember("adPortProfile") ? directory["adPortProfile"].asString() : current.directory.ad_port_profile;
+        updated.directory.site_name = directory.isMember("siteName") ? directory["siteName"].asString() : current.directory.site_name;
+        updated.directory.domain_controller_host = directory.isMember("domainControllerHost") ? directory["domainControllerHost"].asString() : current.directory.domain_controller_host;
+        updated.directory.domain_controller_address = directory.isMember("domainControllerAddress") ? directory["domainControllerAddress"].asString() : current.directory.domain_controller_address;
+        updated.directory.key_encryption_key_file = directory.isMember("keyEncryptionKeyFile") ? directory["keyEncryptionKeyFile"].asString() : current.directory.key_encryption_key_file;
+    }
     updated.features.clear();
     if (body.isMember("features") && body["features"].isObject()) {
         const auto& features = body["features"];
@@ -103,6 +131,10 @@ void export_config_env(const nexus::core::Config& config) {
     set_env("NEXUS_LDAP_PORT", std::to_string(config.ldap.port));
     set_env("NEXUS_LDAPS_PORT", std::to_string(config.ldaps.port));
     set_env("NEXUS_KRB_PORT", std::to_string(config.kerberos.port));
+    set_env("NEXUS_KPASSWD_PORT", std::to_string(config.kpasswd.port));
+    set_env("NEXUS_GC_PORT", std::to_string(config.global_catalog.port));
+    set_env("NEXUS_RPC_PORT", std::to_string(config.rpc_endpoint_mapper.port));
+    set_env("NEXUS_SMB_PORT", std::to_string(config.smb.port));
     set_env("NEXUS_DNS_TCP_PORT", std::to_string(config.dns_tcp.port));
     set_env("NEXUS_DNS_UDP_PORT", std::to_string(config.dns_udp.port));
     set_env("NEXUS_DHCP_PORT", std::to_string(config.dhcp.port));
@@ -113,6 +145,14 @@ void export_config_env(const nexus::core::Config& config) {
     set_env("NEXUS_UI_DIST_DIR", config.ui_dist_dir.string());
     set_env("NEXUS_BLOB_ROOT", config.blob_root.string());
     set_env("NEXUS_STATE_ROOT", config.state_root.string());
+    set_env("NEXUS_AD_PORT_PROFILE", config.directory.ad_port_profile);
+    set_env("NEXUS_DIRECTORY_BASE_DN", config.directory.base_dn);
+    set_env("NEXUS_DIRECTORY_ORG", config.directory.organization);
+    set_env("NEXUS_DIRECTORY_REALM", config.directory.realm);
+    set_env("NEXUS_AD_SITE_NAME", config.directory.site_name);
+    set_env("NEXUS_AD_DC_HOST", config.directory.domain_controller_host);
+    set_env("NEXUS_AD_DC_ADDRESS", config.directory.domain_controller_address);
+    set_env("NEXUS_AD_KEY_ENCRYPTION_KEY_FILE", config.directory.key_encryption_key_file);
 }
 
 std::vector<ServiceSpec> make_services(const std::filesystem::path& bin_dir) {

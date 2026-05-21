@@ -282,20 +282,30 @@ std::string sha256_hex(const std::string& payload) {
     return output.str();
 }
 
-void persist_active_directory_domain_to_database(const nexus::core::ActiveDirectoryDomain& domain, const std::string& database_url) {
+void persist_active_directory_domain_to_database(
+    const nexus::core::ActiveDirectoryDomain& domain,
+    const std::string& domain_controller_host,
+    const std::string& domain_controller_address,
+    const std::string& site_name,
+    const std::string& database_url) {
     PGconn* conn = connect_database(database_url);
     if (conn == nullptr) {
         return;
     }
+    const auto dc_address_sql = domain_controller_address.empty() ? "null" : sql_literal(conn, domain_controller_address);
     const std::string sql =
-        "INSERT INTO ad_domains(dns_name,netbios_name,realm,base_dn,domain_sid,created_at) VALUES (" +
+        "INSERT INTO ad_domains(dns_name,netbios_name,realm,base_dn,domain_sid,site_name,dc_host,dc_address,created_at) VALUES (" +
         sql_literal(conn, domain.dns_name) + "," +
         sql_literal(conn, domain.netbios_name) + "," +
         sql_literal(conn, domain.realm) + "," +
         sql_literal(conn, domain.base_dn) + "," +
-        sql_literal(conn, domain.domain_sid) + ",now()) "
+        sql_literal(conn, domain.domain_sid) + "," +
+        sql_literal(conn, site_name) + "," +
+        sql_literal(conn, domain_controller_host) + "," +
+        dc_address_sql + ",now()) "
         "ON CONFLICT (dns_name) DO UPDATE SET netbios_name=excluded.netbios_name, realm=excluded.realm, "
-        "base_dn=excluded.base_dn, domain_sid=excluded.domain_sid;";
+        "base_dn=excluded.base_dn, domain_sid=excluded.domain_sid, site_name=excluded.site_name, "
+        "dc_host=excluded.dc_host, dc_address=excluded.dc_address;";
     PGresult* result = PQexec(conn, sql.c_str());
     if (PQresultStatus(result) != PGRES_COMMAND_OK) {
         std::cerr << "[nexus-api] failed to persist active directory domain: " << PQresultErrorMessage(result) << '\n';
@@ -361,6 +371,179 @@ void delete_directory_object_from_database(const std::string& dn, const std::str
     }
     PQclear(result);
     PQfinish(conn);
+}
+
+std::vector<std::string> json_array_from_string(const std::string& payload) {
+    Json::CharReaderBuilder builder;
+    Json::Value value;
+    std::string errors;
+    std::istringstream input(payload);
+    std::vector<std::string> result;
+    if (!Json::parseFromStream(builder, input, &value, &errors) || !value.isArray()) {
+        return result;
+    }
+    for (const auto& entry : value) {
+        result.push_back(entry.asString());
+    }
+    return result;
+}
+
+std::map<std::string, std::string> json_object_from_string(const std::string& payload) {
+    Json::CharReaderBuilder builder;
+    Json::Value value;
+    std::string errors;
+    std::istringstream input(payload);
+    std::map<std::string, std::string> result;
+    if (!Json::parseFromStream(builder, input, &value, &errors) || !value.isObject()) {
+        return result;
+    }
+    for (const auto& key : value.getMemberNames()) {
+        result[key] = value[key].asString();
+    }
+    return result;
+}
+
+std::vector<nexus::core::DirectoryObject> load_directory_objects_from_database(const std::string& database_url) {
+    PGconn* conn = connect_database(database_url);
+    if (conn == nullptr) {
+        return {};
+    }
+    PGresult* result = PQexec(conn, "SELECT dn,parent_dn,kind,object_classes::text,attributes::text FROM identity_objects ORDER BY dn;");
+    std::vector<nexus::core::DirectoryObject> objects;
+    if (PQresultStatus(result) == PGRES_TUPLES_OK) {
+        for (int index = 0; index < PQntuples(result); ++index) {
+            objects.push_back({
+                PQgetvalue(result, index, 0),
+                PQgetvalue(result, index, 1),
+                PQgetvalue(result, index, 2),
+                json_array_from_string(PQgetvalue(result, index, 3)),
+                json_object_from_string(PQgetvalue(result, index, 4)),
+            });
+        }
+    }
+    PQclear(result);
+    PQfinish(conn);
+    return objects;
+}
+
+void persist_dns_zone_to_database(const nexus::core::DnsZone& zone, const std::string& database_url) {
+    PGconn* conn = connect_database(database_url);
+    if (conn == nullptr) {
+        return;
+    }
+
+    PGresult* begin = PQexec(conn, "begin");
+    if (PQresultStatus(begin) != PGRES_COMMAND_OK) {
+        PQclear(begin);
+        PQfinish(conn);
+        return;
+    }
+    PQclear(begin);
+
+    bool ok = true;
+    const std::string upsert_zone =
+        "INSERT INTO dns_zones(name,serial,updated_at) VALUES (" +
+        sql_literal(conn, zone.name) + "," + std::to_string(zone.serial) + ",now()) "
+        "ON CONFLICT (name) DO UPDATE SET serial=excluded.serial, updated_at=now();";
+    PGresult* zone_result = PQexec(conn, upsert_zone.c_str());
+    ok = PQresultStatus(zone_result) == PGRES_COMMAND_OK;
+    PQclear(zone_result);
+
+    if (ok) {
+        const std::string delete_records = "DELETE FROM dns_records WHERE zone_name = " + sql_literal(conn, zone.name) + ";";
+        PGresult* delete_result = PQexec(conn, delete_records.c_str());
+        ok = PQresultStatus(delete_result) == PGRES_COMMAND_OK;
+        PQclear(delete_result);
+    }
+
+    for (const auto& record : zone.records) {
+        if (!ok) {
+            break;
+        }
+        const std::string insert_record =
+            "INSERT INTO dns_records(zone_name,name,type,value,ttl,priority,dns_class,weight,port,flags) VALUES (" +
+            sql_literal(conn, zone.name) + "," +
+            sql_literal(conn, record.name) + "," +
+            sql_literal(conn, record.type) + "," +
+            sql_literal(conn, record.value) + "," +
+            std::to_string(record.ttl) + "," +
+            std::to_string(record.priority) + "," +
+            sql_literal(conn, record.dns_class) + "," +
+            std::to_string(record.weight) + "," +
+            std::to_string(record.port) + "," +
+            sql_literal(conn, record.flags) + ");";
+        PGresult* record_result = PQexec(conn, insert_record.c_str());
+        ok = PQresultStatus(record_result) == PGRES_COMMAND_OK;
+        if (!ok) {
+            std::cerr << "[nexus-api] failed to persist dns record: " << PQresultErrorMessage(record_result) << '\n';
+        }
+        PQclear(record_result);
+    }
+
+    PGresult* end = PQexec(conn, ok ? "commit" : "rollback");
+    PQclear(end);
+    PQfinish(conn);
+}
+
+void delete_dns_zone_from_database(const std::string& zone_name, const std::string& database_url) {
+    PGconn* conn = connect_database(database_url);
+    if (conn == nullptr) {
+        return;
+    }
+    const std::string sql = "DELETE FROM dns_zones WHERE name = " + sql_literal(conn, zone_name) + ";";
+    PGresult* result = PQexec(conn, sql.c_str());
+    PQclear(result);
+    PQfinish(conn);
+}
+
+std::vector<nexus::core::DnsZone> load_dns_zones_from_database(const std::string& database_url) {
+    PGconn* conn = connect_database(database_url);
+    if (conn == nullptr) {
+        return {};
+    }
+
+    PGresult* zones_result = PQexec(conn, "SELECT name,serial FROM dns_zones ORDER BY name;");
+    std::vector<nexus::core::DnsZone> zones;
+    if (PQresultStatus(zones_result) == PGRES_TUPLES_OK) {
+        for (int index = 0; index < PQntuples(zones_result); ++index) {
+            zones.push_back({
+                PQgetvalue(zones_result, index, 0),
+                static_cast<std::uint64_t>(std::stoull(PQgetvalue(zones_result, index, 1))),
+                {},
+            });
+        }
+    }
+    PQclear(zones_result);
+
+    PGresult* records_result = PQexec(
+        conn,
+        "SELECT zone_name,name,type,value,ttl,priority,coalesce(dns_class,'IN'),coalesce(weight,0),coalesce(port,0),coalesce(flags,'') "
+        "FROM dns_records ORDER BY zone_name,id;");
+    if (PQresultStatus(records_result) == PGRES_TUPLES_OK) {
+        for (int index = 0; index < PQntuples(records_result); ++index) {
+            const std::string zone_name = PQgetvalue(records_result, index, 0);
+            auto zone = std::find_if(zones.begin(), zones.end(), [&](const auto& candidate) {
+                return candidate.name == zone_name;
+            });
+            if (zone == zones.end()) {
+                continue;
+            }
+            zone->records.push_back({
+                PQgetvalue(records_result, index, 1),
+                PQgetvalue(records_result, index, 2),
+                PQgetvalue(records_result, index, 3),
+                PQgetvalue(records_result, index, 6),
+                static_cast<std::uint32_t>(std::stoul(PQgetvalue(records_result, index, 4))),
+                static_cast<std::uint16_t>(std::stoul(PQgetvalue(records_result, index, 5))),
+                static_cast<std::uint16_t>(std::stoul(PQgetvalue(records_result, index, 7))),
+                static_cast<std::uint16_t>(std::stoul(PQgetvalue(records_result, index, 8))),
+                PQgetvalue(records_result, index, 9),
+            });
+        }
+    }
+    PQclear(records_result);
+    PQfinish(conn);
+    return zones;
 }
 
 void persist_pki_authority_to_database(const nexus::core::PkiAuthority& authority, const std::string& database_url) {
@@ -619,12 +802,21 @@ Json::Value config_to_json_value(const nexus::core::Config& config) {
     node["ports"]["ldap"] = config.ldap.port;
     node["ports"]["ldaps"] = config.ldaps.port;
     node["ports"]["kerberos"] = config.kerberos.port;
+    node["ports"]["kpasswd"] = config.kpasswd.port;
+    node["ports"]["globalCatalog"] = config.global_catalog.port;
+    node["ports"]["rpc"] = config.rpc_endpoint_mapper.port;
+    node["ports"]["smb"] = config.smb.port;
     node["ports"]["dnsTcp"] = config.dns_tcp.port;
     node["ports"]["dnsUdp"] = config.dns_udp.port;
     node["ports"]["dhcp"] = config.dhcp.port;
     node["directory"]["baseDn"] = config.directory.base_dn;
     node["directory"]["organization"] = config.directory.organization;
     node["directory"]["realm"] = config.directory.realm;
+    node["directory"]["adPortProfile"] = config.directory.ad_port_profile;
+    node["directory"]["siteName"] = config.directory.site_name;
+    node["directory"]["domainControllerHost"] = config.directory.domain_controller_host;
+    node["directory"]["domainControllerAddress"] = config.directory.domain_controller_address;
+    node["directory"]["keyEncryptionKeyFile"] = config.directory.key_encryption_key_file;
     node["dns"]["primaryNs"] = config.dns.primary_ns;
     node["dns"]["adminMailbox"] = config.dns.admin_mailbox;
     node["dns"]["defaultTtl"] = Json::UInt(config.dns.default_ttl);
@@ -672,6 +864,10 @@ nexus::core::Config config_from_json_value(const nexus::core::Config& current, c
     updated.ldap.port = read_port("ldapPort", current.ldap.port);
     updated.ldaps.port = read_port("ldapsPort", current.ldaps.port);
     updated.kerberos.port = read_port("kerberosPort", current.kerberos.port);
+    updated.kpasswd.port = read_port("kpasswdPort", current.kpasswd.port);
+    updated.global_catalog.port = read_port("globalCatalogPort", current.global_catalog.port);
+    updated.rpc_endpoint_mapper.port = read_port("rpcPort", current.rpc_endpoint_mapper.port);
+    updated.smb.port = read_port("smbPort", current.smb.port);
     updated.dns_tcp.port = read_port("dnsTcpPort", current.dns_tcp.port);
     updated.dns_udp.port = read_port("dnsUdpPort", current.dns_udp.port);
     updated.dhcp.port = read_port("dhcpPort", current.dhcp.port);
@@ -681,6 +877,10 @@ nexus::core::Config config_from_json_value(const nexus::core::Config& current, c
         if (ports.isMember("ldap")) updated.ldap.port = ports["ldap"].asInt();
         if (ports.isMember("ldaps")) updated.ldaps.port = ports["ldaps"].asInt();
         if (ports.isMember("kerberos")) updated.kerberos.port = ports["kerberos"].asInt();
+        if (ports.isMember("kpasswd")) updated.kpasswd.port = ports["kpasswd"].asInt();
+        if (ports.isMember("globalCatalog")) updated.global_catalog.port = ports["globalCatalog"].asInt();
+        if (ports.isMember("rpc")) updated.rpc_endpoint_mapper.port = ports["rpc"].asInt();
+        if (ports.isMember("smb")) updated.smb.port = ports["smb"].asInt();
         if (ports.isMember("dnsTcp")) updated.dns_tcp.port = ports["dnsTcp"].asInt();
         if (ports.isMember("dnsUdp")) updated.dns_udp.port = ports["dnsUdp"].asInt();
         if (ports.isMember("dhcp")) updated.dhcp.port = ports["dhcp"].asInt();
@@ -690,6 +890,11 @@ nexus::core::Config config_from_json_value(const nexus::core::Config& current, c
         updated.directory.base_dn = directory.isMember("baseDn") ? directory["baseDn"].asString() : current.directory.base_dn;
         updated.directory.organization = directory.isMember("organization") ? directory["organization"].asString() : current.directory.organization;
         updated.directory.realm = directory.isMember("realm") ? directory["realm"].asString() : current.directory.realm;
+        updated.directory.ad_port_profile = directory.isMember("adPortProfile") ? directory["adPortProfile"].asString() : current.directory.ad_port_profile;
+        updated.directory.site_name = directory.isMember("siteName") ? directory["siteName"].asString() : current.directory.site_name;
+        updated.directory.domain_controller_host = directory.isMember("domainControllerHost") ? directory["domainControllerHost"].asString() : current.directory.domain_controller_host;
+        updated.directory.domain_controller_address = directory.isMember("domainControllerAddress") ? directory["domainControllerAddress"].asString() : current.directory.domain_controller_address;
+        updated.directory.key_encryption_key_file = directory.isMember("keyEncryptionKeyFile") ? directory["keyEncryptionKeyFile"].asString() : current.directory.key_encryption_key_file;
     }
     if (body.isMember("dns") && body["dns"].isObject()) {
         const auto& dns = body["dns"];
@@ -833,13 +1038,23 @@ bool PlatformState::create_active_directory_domain(
         }
     }
 
+    const auto sid = [&](int rid) {
+        return domain.domain_sid + "-" + std::to_string(rid);
+    };
+
     std::vector<nexus::core::DirectoryObject> objects{
         {domain.base_dn, "", "domainDNS", {"top", "domain", "domainDNS"}, {{"dc", domain.dns_name.substr(0, domain.dns_name.find('.'))}, {"objectSid", domain.domain_sid}, {"nETBIOSName", domain.netbios_name}}},
+        {"cn=Builtin," + domain.base_dn, domain.base_dn, "builtinDomain", {"top", "builtinDomain"}, {{"cn", "Builtin"}, {"objectSid", "S-1-5-32"}}},
         {"ou=Users," + domain.base_dn, domain.base_dn, "organizationalUnit", {"top", "organizationalUnit"}, {{"ou", "Users"}, {"description", "Default user container"}}},
         {"ou=Groups," + domain.base_dn, domain.base_dn, "organizationalUnit", {"top", "organizationalUnit"}, {{"ou", "Groups"}, {"description", "Default group container"}}},
+        {"ou=Domain Controllers," + domain.base_dn, domain.base_dn, "organizationalUnit", {"top", "organizationalUnit"}, {{"ou", "Domain Controllers"}, {"description", "Domain controller container"}}},
         {"cn=Computers," + domain.base_dn, domain.base_dn, "container", {"top", "container"}, {{"cn", "Computers"}, {"description", "Default computer account container"}}},
-        {"cn=Domain Users,ou=Groups," + domain.base_dn, "ou=Groups," + domain.base_dn, "group", {"top", "group"}, {{"cn", "Domain Users"}, {"sAMAccountName", "Domain Users"}, {"groupType", "-2147483646"}}},
-        {"cn=Domain Admins,ou=Groups," + domain.base_dn, "ou=Groups," + domain.base_dn, "group", {"top", "group"}, {{"cn", "Domain Admins"}, {"sAMAccountName", "Domain Admins"}, {"groupType", "-2147483646"}}},
+        {"cn=Domain Users,ou=Groups," + domain.base_dn, "ou=Groups," + domain.base_dn, "group", {"top", "group"}, {{"cn", "Domain Users"}, {"sAMAccountName", "Domain Users"}, {"groupType", "-2147483646"}, {"objectSid", sid(513)}}},
+        {"cn=Domain Admins,ou=Groups," + domain.base_dn, "ou=Groups," + domain.base_dn, "group", {"top", "group"}, {{"cn", "Domain Admins"}, {"sAMAccountName", "Domain Admins"}, {"groupType", "-2147483646"}, {"objectSid", sid(512)}}},
+        {"cn=Administrators,cn=Builtin," + domain.base_dn, "cn=Builtin," + domain.base_dn, "group", {"top", "group"}, {{"cn", "Administrators"}, {"sAMAccountName", "Administrators"}, {"groupType", "-2147483643"}, {"objectSid", "S-1-5-32-544"}}},
+        {"cn=Guest,ou=Users," + domain.base_dn, "ou=Users," + domain.base_dn, "user", {"top", "person", "organizationalPerson", "user"}, {{"cn", "Guest"}, {"sAMAccountName", "Guest"}, {"userAccountControl", "66082"}, {"objectSid", sid(501)}}},
+        {"cn=krbtgt,ou=Users," + domain.base_dn, "ou=Users," + domain.base_dn, "user", {"top", "person", "organizationalPerson", "user"}, {{"cn", "krbtgt"}, {"sAMAccountName", "krbtgt"}, {"userAccountControl", "514"}, {"servicePrincipalName", "krbtgt/" + domain.realm}, {"objectSid", sid(502)}}},
+        {"cn=" + domain_controller_host + ",ou=Domain Controllers," + domain.base_dn, "ou=Domain Controllers," + domain.base_dn, "computer", {"top", "person", "organizationalPerson", "user", "computer"}, {{"cn", domain_controller_host}, {"sAMAccountName", uppercase_ascii(domain_controller_host) + "$"}, {"dNSHostName", domain_controller_host + "." + domain.dns_name}, {"userAccountControl", "532480"}, {"servicePrincipalName", "HOST/" + domain_controller_host + "." + domain.dns_name + ";LDAP/" + domain_controller_host + "." + domain.dns_name + ";GC/" + domain_controller_host + "." + domain.dns_name + ";CIFS/" + domain_controller_host + "." + domain.dns_name}, {"objectSid", sid(1000)}}},
     };
 
     const auto admin_cn = admin_display_name.empty() ? admin_sam_account : admin_display_name;
@@ -854,12 +1069,18 @@ bool PlatformState::create_active_directory_domain(
             {"sAMAccountName", admin_sam_account},
             {"userPrincipalName", admin_sam_account + "@" + domain.dns_name},
             {"userAccountControl", "512"},
+            {"objectSid", sid(500)},
             {"memberOf", "cn=Domain Admins,ou=Groups," + domain.base_dn},
         }};
     administrator.attributes["userPasswordHash"] = password_hasher_.hash_password(admin_password);
     objects.push_back(std::move(administrator));
 
-    persist_active_directory_domain_to_database(domain, config_.database_url);
+    persist_active_directory_domain_to_database(
+        domain,
+        domain_controller_host,
+        domain_controller_address,
+        config_.directory.site_name,
+        config_.database_url);
     for (const auto& object : objects) {
         persist_directory_object_to_database(object, config_.database_url);
     }
@@ -883,18 +1104,17 @@ bool PlatformState::create_active_directory_domain(
         zone = std::prev(zones_.end());
     }
 
-    const auto dc_target = domain_controller_host + "." + domain.dns_name + ".";
-    const auto ldap_port = static_cast<std::uint16_t>(config_.ldap.port);
-    const auto kerberos_port = static_cast<std::uint16_t>(config_.kerberos.port);
-    const std::vector<nexus::core::DnsRecord> ad_records{
-        {domain_controller_host, "A", domain_controller_address, "IN", 300, 0, 0, 0, ""},
-        {"_ldap._tcp", "SRV", dc_target, "IN", 300, 0, 100, ldap_port, ""},
-        {"_kerberos._tcp", "SRV", dc_target, "IN", 300, 0, 100, kerberos_port, ""},
-        {"_kerberos._udp", "SRV", dc_target, "IN", 300, 0, 100, kerberos_port, ""},
-        {"_kpasswd._tcp", "SRV", dc_target, "IN", 300, 0, 100, 464, ""},
-        {"_gc._tcp", "SRV", dc_target, "IN", 300, 0, 100, 3268, ""},
-    };
-    for (const auto& record : ad_records) {
+    const auto ad_zone = nexus::protocol::make_active_directory_dns_zone({
+        domain.dns_name,
+        config_.directory.site_name,
+        domain_controller_host,
+        domain_controller_address,
+        static_cast<std::uint16_t>(config_.ldap.port),
+        static_cast<std::uint16_t>(config_.kerberos.port),
+        static_cast<std::uint16_t>(config_.kpasswd.port),
+        static_cast<std::uint16_t>(config_.global_catalog.port),
+    });
+    for (const auto& record : ad_zone.records) {
         const auto duplicate = std::find_if(zone->records.begin(), zone->records.end(), [&](const auto& current) {
             return current.name == record.name && current.type == record.type && current.value == record.value && current.port == record.port;
         });
@@ -903,6 +1123,7 @@ bool PlatformState::create_active_directory_domain(
         }
     }
     zone->serial += 1;
+    persist_dns_zone_to_database(*zone, config_.database_url);
 
     jobs_.enqueue("directory", "Create Windows domain " + domain.dns_name);
     jobs_.enqueue("dns", "Publish Active Directory SRV records for " + domain.dns_name);
@@ -952,6 +1173,11 @@ std::vector<nexus::core::ActiveDirectoryReadinessItem> PlatformState::active_dir
     const bool has_dns_zone = has_domain && std::any_of(zones_.begin(), zones_.end(), [&](const auto& zone) {
         return zone.name == ad_domain_->dns_name;
     });
+    const bool has_dns_locator = has_domain && std::any_of(zones_.begin(), zones_.end(), [&](const auto& zone) {
+        return zone.name == ad_domain_->dns_name && std::any_of(zone.records.begin(), zone.records.end(), [](const auto& record) {
+            return record.type == "SRV" && (record.name == "_ldap._tcp" || record.name == "_ldap._tcp.dc._msdcs");
+        });
+    });
     const bool has_admin_user = has_domain && std::any_of(directory_.begin(), directory_.end(), [&](const auto& object) {
         const auto membership = object.attributes.find("memberOf");
         return object.kind == "user" && membership != object.attributes.end() && membership->second == "cn=Domain Admins,ou=Groups," + ad_domain_->base_dn;
@@ -962,10 +1188,12 @@ std::vector<nexus::core::ActiveDirectoryReadinessItem> PlatformState::active_dir
 
     return {
         {"domain", "Windows domain model", has_domain, has_domain ? ad_domain_->dns_name + " / " + ad_domain_->netbios_name : "Create the Windows domain first"},
-        {"dns", "AD DNS records", has_dns_zone, has_dns_zone ? "DNS zone exists for the domain" : "The domain DNS zone and SRV records are missing"},
+        {"dns", "AD DNS zone", has_dns_zone, has_dns_zone ? "DNS zone exists for the domain" : "The domain DNS zone is missing"},
+        {"dns-locator", "AD DNS locator records", has_dns_locator, has_dns_locator ? "LDAP/Kerberos SRV locator records are published" : "Publish _ldap and _kerberos SRV records"},
         {"administrator", "Domain administrator", has_admin_user, has_admin_user ? "Administrator account exists" : "Create the initial Administrator user"},
         {"computers", "Computer account container", has_machine_container, has_machine_container ? "CN=Computers container exists" : "Create the default computer container"},
-        {"ldap-ad", "LDAP AD wire protocol", false, "Backend still exposes CRUD APIs; LDAP AD protocol bind/search is not implemented yet"},
+        {"ldap-rootdse", "LDAP RootDSE discovery", true, "LDAP bind and RootDSE probes are served by nexus-directory"},
+        {"ldap-ad", "LDAP AD object protocol", false, "Object search/add/modify still need schema-aware AD LDAP semantics"},
         {"kerberos", "Kerberos KDC", false, "AS/TGS ticket handling is not implemented yet"},
         {"netlogon", "Netlogon / MS-RPC", false, "Windows domain join still needs Netlogon, SAMR and LSA RPC"},
         {"sysvol", "SMB SYSVOL / NETLOGON", false, "SYSVOL and NETLOGON shares are not implemented yet"},
@@ -1164,6 +1392,7 @@ bool PlatformState::create_dns_zone(const std::string& zone_name, const std::str
     }
 
     zones_.push_back({zone_name, default_zone_serial(), {}});
+    persist_dns_zone_to_database(zones_.back(), config_.database_url);
     jobs_.enqueue("dns", "Create zone " + zone_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "zone.created", zone_name});
     revision_ += 1;
@@ -1190,6 +1419,10 @@ bool PlatformState::update_dns_zone(const std::string& zone_name, const std::str
 
     target->name = new_name;
     target->serial += 1;
+    persist_dns_zone_to_database(*target, config_.database_url);
+    if (zone_name != new_name) {
+        delete_dns_zone_from_database(zone_name, config_.database_url);
+    }
     jobs_.enqueue("dns", "Rename zone " + zone_name + " to " + new_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "zone.updated", zone_name + " -> " + new_name});
     revision_ += 1;
@@ -1204,6 +1437,7 @@ bool PlatformState::delete_dns_zone(const std::string& zone_name, const std::str
     }
 
     zones_.erase(it);
+    delete_dns_zone_from_database(zone_name, config_.database_url);
     jobs_.enqueue("dns", "Delete zone " + zone_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "zone.deleted", zone_name});
     revision_ += 1;
@@ -1222,6 +1456,7 @@ bool PlatformState::add_dns_record(
 
     it->records.push_back(record);
     it->serial += 1;
+    persist_dns_zone_to_database(*it, config_.database_url);
     jobs_.enqueue("dns", "Apply zone update for " + zone_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "record.created", record.name + " " + record.type});
     revision_ += 1;
@@ -1241,6 +1476,7 @@ bool PlatformState::update_dns_record(
 
     it->records[record_index] = record;
     it->serial += 1;
+    persist_dns_zone_to_database(*it, config_.database_url);
     jobs_.enqueue("dns", "Update record in " + zone_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "record.updated", zone_name + " #" + std::to_string(record_index)});
     revision_ += 1;
@@ -1256,6 +1492,7 @@ bool PlatformState::delete_dns_record(const std::string& zone_name, std::size_t 
 
     it->records.erase(it->records.begin() + static_cast<std::ptrdiff_t>(record_index));
     it->serial += 1;
+    persist_dns_zone_to_database(*it, config_.database_url);
     jobs_.enqueue("dns", "Delete record in " + zone_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "record.deleted", zone_name + " #" + std::to_string(record_index)});
     revision_ += 1;
@@ -1753,8 +1990,8 @@ void PlatformState::initialize_runtime_state() {
     std::scoped_lock lock(mutex_);
     services_ = make_services(config_);
     ad_domain_ = load_active_directory_domain_from_database(config_.database_url);
-    directory_.clear();
-    zones_.clear();
+    directory_ = load_directory_objects_from_database(config_.database_url);
+    zones_ = load_dns_zones_from_database(config_.database_url);
     pools_.clear();
     authorities_.clear();
     certificates_.clear();

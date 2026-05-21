@@ -122,11 +122,11 @@ target_link_libraries(nexus-api
 nexus_apply_sanitizers(nexus-api)
 
 add_executable(nexus-directory apps/directory/main.cpp)
-target_link_libraries(nexus-directory PRIVATE nexus_core)
+target_link_libraries(nexus-directory PRIVATE nexus_core nexus_protocol)
 nexus_apply_sanitizers(nexus-directory)
 
 add_executable(nexus-network apps/network/main.cpp)
-target_link_libraries(nexus-network PRIVATE nexus_core)
+target_link_libraries(nexus-network PRIVATE nexus_core nexus_protocol PostgreSQL::PostgreSQL)
 nexus_apply_sanitizers(nexus-network)
 
 add_executable(nexus-pki-repo apps/pki_repo/main.cpp)

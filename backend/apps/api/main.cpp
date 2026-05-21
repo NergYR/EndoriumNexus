@@ -216,12 +216,21 @@ Json::Value to_json(const nexus::core::Config& config) {
     node["ports"]["ldap"] = config.ldap.port;
     node["ports"]["ldaps"] = config.ldaps.port;
     node["ports"]["kerberos"] = config.kerberos.port;
+    node["ports"]["kpasswd"] = config.kpasswd.port;
+    node["ports"]["globalCatalog"] = config.global_catalog.port;
+    node["ports"]["rpc"] = config.rpc_endpoint_mapper.port;
+    node["ports"]["smb"] = config.smb.port;
     node["ports"]["dnsTcp"] = config.dns_tcp.port;
     node["ports"]["dnsUdp"] = config.dns_udp.port;
     node["ports"]["dhcp"] = config.dhcp.port;
     node["directory"]["baseDn"] = config.directory.base_dn;
     node["directory"]["organization"] = config.directory.organization;
     node["directory"]["realm"] = config.directory.realm;
+    node["directory"]["adPortProfile"] = config.directory.ad_port_profile;
+    node["directory"]["siteName"] = config.directory.site_name;
+    node["directory"]["domainControllerHost"] = config.directory.domain_controller_host;
+    node["directory"]["domainControllerAddress"] = config.directory.domain_controller_address;
+    node["directory"]["keyEncryptionKeyFile"] = config.directory.key_encryption_key_file;
     node["dns"]["primaryNs"] = config.dns.primary_ns;
     node["dns"]["adminMailbox"] = config.dns.admin_mailbox;
     node["dns"]["defaultTtl"] = Json::UInt(config.dns.default_ttl);
@@ -270,9 +279,27 @@ nexus::core::Config config_from_json(const nexus::core::Config& current, const J
     updated.ldap.port = read_port("ldapPort", current.ldap.port);
     updated.ldaps.port = read_port("ldapsPort", current.ldaps.port);
     updated.kerberos.port = read_port("kerberosPort", current.kerberos.port);
+    updated.kpasswd.port = read_port("kpasswdPort", current.kpasswd.port);
+    updated.global_catalog.port = read_port("globalCatalogPort", current.global_catalog.port);
+    updated.rpc_endpoint_mapper.port = read_port("rpcPort", current.rpc_endpoint_mapper.port);
+    updated.smb.port = read_port("smbPort", current.smb.port);
     updated.dns_tcp.port = read_port("dnsTcpPort", current.dns_tcp.port);
     updated.dns_udp.port = read_port("dnsUdpPort", current.dns_udp.port);
     updated.dhcp.port = read_port("dhcpPort", current.dhcp.port);
+    if (body.isMember("ports") && body["ports"].isObject()) {
+        const auto& ports = body["ports"];
+        if (ports.isMember("http")) updated.http.port = ports["http"].asInt();
+        if (ports.isMember("ldap")) updated.ldap.port = ports["ldap"].asInt();
+        if (ports.isMember("ldaps")) updated.ldaps.port = ports["ldaps"].asInt();
+        if (ports.isMember("kerberos")) updated.kerberos.port = ports["kerberos"].asInt();
+        if (ports.isMember("kpasswd")) updated.kpasswd.port = ports["kpasswd"].asInt();
+        if (ports.isMember("globalCatalog")) updated.global_catalog.port = ports["globalCatalog"].asInt();
+        if (ports.isMember("rpc")) updated.rpc_endpoint_mapper.port = ports["rpc"].asInt();
+        if (ports.isMember("smb")) updated.smb.port = ports["smb"].asInt();
+        if (ports.isMember("dnsTcp")) updated.dns_tcp.port = ports["dnsTcp"].asInt();
+        if (ports.isMember("dnsUdp")) updated.dns_udp.port = ports["dnsUdp"].asInt();
+        if (ports.isMember("dhcp")) updated.dhcp.port = ports["dhcp"].asInt();
+    }
     if (body.isMember("directory") && body["directory"].isObject()) {
         const auto& directory = body["directory"];
         if (directory.isMember("baseDn")) {
@@ -283,6 +310,21 @@ nexus::core::Config config_from_json(const nexus::core::Config& current, const J
         }
         if (directory.isMember("realm")) {
             updated.directory.realm = directory["realm"].asString();
+        }
+        if (directory.isMember("adPortProfile")) {
+            updated.directory.ad_port_profile = directory["adPortProfile"].asString();
+        }
+        if (directory.isMember("siteName")) {
+            updated.directory.site_name = directory["siteName"].asString();
+        }
+        if (directory.isMember("domainControllerHost")) {
+            updated.directory.domain_controller_host = directory["domainControllerHost"].asString();
+        }
+        if (directory.isMember("domainControllerAddress")) {
+            updated.directory.domain_controller_address = directory["domainControllerAddress"].asString();
+        }
+        if (directory.isMember("keyEncryptionKeyFile")) {
+            updated.directory.key_encryption_key_file = directory["keyEncryptionKeyFile"].asString();
         }
     }
     if (body.isMember("dns") && body["dns"].isObject()) {

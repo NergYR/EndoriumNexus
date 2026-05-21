@@ -3,6 +3,7 @@
 #include <uv.h>
 
 #include <csignal>
+#include <cstring>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
@@ -15,11 +16,26 @@ namespace {
 struct TcpServer {
     uv_tcp_t handle{};
     std::string label;
+    UvPacketHandler handler;
 };
 
 struct UdpServer {
     uv_udp_t handle{};
     std::string label;
+    UvPacketHandler handler;
+};
+
+struct TcpClient {
+    uv_tcp_t handle{};
+    std::string label;
+    UvPacketHandler handler;
+    uv_write_t write_request{};
+    std::vector<std::uint8_t> write_buffer;
+};
+
+struct UdpWrite {
+    uv_udp_send_t request{};
+    std::vector<std::uint8_t> payload;
 };
 
 void alloc_buffer(uv_handle_t*, std::size_t suggested_size, uv_buf_t* buf) {
@@ -28,7 +44,7 @@ void alloc_buffer(uv_handle_t*, std::size_t suggested_size, uv_buf_t* buf) {
 }
 
 void on_client_closed(uv_handle_t* handle) {
-    delete reinterpret_cast<uv_tcp_t*>(handle);
+    delete reinterpret_cast<TcpClient*>(handle->data);
 }
 
 void on_new_connection(uv_stream_t* server, int status) {
@@ -36,16 +52,85 @@ void on_new_connection(uv_stream_t* server, int status) {
         return;
     }
 
-    auto* client = new uv_tcp_t;
-    uv_tcp_init(server->loop, client);
-    if (uv_accept(server, reinterpret_cast<uv_stream_t*>(client)) == 0) {
-        uv_close(reinterpret_cast<uv_handle_t*>(client), on_client_closed);
+    const auto* tcp_server = static_cast<TcpServer*>(server->data);
+    auto* client = new TcpClient;
+    client->label = tcp_server->label;
+    client->handler = tcp_server->handler;
+    uv_tcp_init(server->loop, &client->handle);
+    client->handle.data = client;
+    if (uv_accept(server, reinterpret_cast<uv_stream_t*>(&client->handle)) == 0) {
+        if (client->handler) {
+            uv_read_start(reinterpret_cast<uv_stream_t*>(&client->handle), alloc_buffer, [](uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
+                auto* tcp_client = static_cast<TcpClient*>(stream->data);
+                if (nread > 0 && buf != nullptr && buf->base != nullptr) {
+                    UvPacket request(
+                        reinterpret_cast<std::uint8_t*>(buf->base),
+                        reinterpret_cast<std::uint8_t*>(buf->base) + nread);
+                    auto response = tcp_client->handler(tcp_client->label, request);
+                    if (!response.empty()) {
+                        tcp_client->write_buffer = std::move(response);
+                        auto write_buffer = uv_buf_init(
+                            reinterpret_cast<char*>(tcp_client->write_buffer.data()),
+                            static_cast<unsigned int>(tcp_client->write_buffer.size()));
+                        tcp_client->write_request.data = tcp_client;
+                        const int write_status = uv_write(&tcp_client->write_request, stream, &write_buffer, 1, [](uv_write_t* request, int) {
+                            auto* written_client = static_cast<TcpClient*>(request->data);
+                            uv_close(reinterpret_cast<uv_handle_t*>(&written_client->handle), on_client_closed);
+                        });
+                        if (write_status < 0) {
+                            uv_close(reinterpret_cast<uv_handle_t*>(&tcp_client->handle), on_client_closed);
+                        }
+                    } else {
+                        uv_close(reinterpret_cast<uv_handle_t*>(&tcp_client->handle), on_client_closed);
+                    }
+                } else if (nread < 0) {
+                    uv_close(reinterpret_cast<uv_handle_t*>(&tcp_client->handle), on_client_closed);
+                }
+                if (buf != nullptr && buf->base != nullptr) {
+                    std::free(buf->base);
+                }
+            });
+        } else {
+            uv_close(reinterpret_cast<uv_handle_t*>(&client->handle), on_client_closed);
+        }
     } else {
-        uv_close(reinterpret_cast<uv_handle_t*>(client), on_client_closed);
+        uv_close(reinterpret_cast<uv_handle_t*>(&client->handle), on_client_closed);
     }
 }
 
-void on_udp_read(uv_udp_t*, ssize_t nread, const uv_buf_t* buf, const sockaddr*, unsigned) {
+void on_udp_send(uv_udp_send_t* request, int) {
+    delete static_cast<UdpWrite*>(request->data);
+}
+
+void on_udp_read(uv_udp_t* handle, ssize_t nread, const uv_buf_t* buf, const sockaddr* addr, unsigned) {
+    auto* server = static_cast<UdpServer*>(handle->data);
+    if (nread > 0 && addr != nullptr && buf != nullptr && buf->base != nullptr && server->handler) {
+        UvPacket request(
+            reinterpret_cast<std::uint8_t*>(buf->base),
+            reinterpret_cast<std::uint8_t*>(buf->base) + nread);
+        auto response = server->handler(server->label, request);
+        if (!response.empty()) {
+            auto* write = new UdpWrite;
+            write->payload = std::move(response);
+            write->request.data = write;
+            auto write_buffer = uv_buf_init(
+                reinterpret_cast<char*>(write->payload.data()),
+                static_cast<unsigned int>(write->payload.size()));
+            sockaddr_storage destination{};
+            const auto address_size = addr->sa_family == AF_INET6 ? sizeof(sockaddr_in6) : sizeof(sockaddr_in);
+            std::memcpy(&destination, addr, address_size);
+            const int send_status = uv_udp_send(
+                &write->request,
+                handle,
+                &write_buffer,
+                1,
+                reinterpret_cast<const sockaddr*>(&destination),
+                on_udp_send);
+            if (send_status < 0) {
+                delete write;
+            }
+        }
+    }
     if (buf != nullptr && buf->base != nullptr) {
         std::free(buf->base);
     }
@@ -80,6 +165,7 @@ int run_uv_daemon(const std::string& service_name, const std::vector<UvListener>
         if (listener.transport == UvTransport::tcp) {
             auto server = std::make_unique<TcpServer>();
             server->label = listener.label;
+            server->handler = listener.handler;
             uv_tcp_init(&loop, &server->handle);
             server->handle.data = server.get();
             uv_tcp_bind(&server->handle, reinterpret_cast<const sockaddr*>(&addr), 0);
@@ -90,6 +176,7 @@ int run_uv_daemon(const std::string& service_name, const std::vector<UvListener>
         } else {
             auto server = std::make_unique<UdpServer>();
             server->label = listener.label;
+            server->handler = listener.handler;
             uv_udp_init(&loop, &server->handle);
             server->handle.data = server.get();
             uv_udp_bind(&server->handle, reinterpret_cast<const sockaddr*>(&addr), 0);

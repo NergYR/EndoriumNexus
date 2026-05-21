@@ -13,9 +13,11 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 int main() {
     using namespace nexus;
@@ -37,6 +39,40 @@ int main() {
     assert(zone_text.find("2026042401") != std::string::npos);
     assert(zone_text.find("_ldap._tcp 300 IN SRV 10 20 389 directory.endorium.local.") != std::string::npos);
     assert(zone_text.find("@ 300 IN CAA 0 issue \"letsencrypt.org\"") != std::string::npos);
+
+    const auto ad_zone = protocol::make_active_directory_dns_zone({
+        "endorium.local",
+        "Default-First-Site-Name",
+        "dc1",
+        "10.10.10.10",
+        389,
+        88,
+        464,
+        3268,
+    });
+    std::vector<std::uint8_t> dns_query{
+        0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x05, '_', 'l', 'd', 'a', 'p',
+        0x04, '_', 't', 'c', 'p',
+        0x02, 'd', 'c',
+        0x06, '_', 'm', 's', 'd', 'c', 's',
+        0x08, 'e', 'n', 'd', 'o', 'r', 'i', 'u', 'm',
+        0x05, 'l', 'o', 'c', 'a', 'l',
+        0x00, 0x00, 0x21, 0x00, 0x01};
+    const auto dns_response = protocol::resolve_dns_query(dns_query, {ad_zone});
+    assert(dns_response.size() > dns_query.size());
+    assert(dns_response[0] == 0x12 && dns_response[1] == 0x34);
+    assert(dns_response[6] == 0x00 && dns_response[7] >= 0x01);
+
+    const std::vector<std::uint8_t> ldap_bind{0x30, 0x0c, 0x02, 0x01, 0x01, 0x60, 0x07, 0x02, 0x01, 0x03, 0x04, 0x00, 0x80, 0x00};
+    const auto bind_response = protocol::ldap_ad_response(ldap_bind, {"endorium.local", "dc=endorium,dc=local", "ENDORIUM.LOCAL", "Default-First-Site-Name", "dc1"});
+    assert(!bind_response.empty());
+    assert(std::find(bind_response.begin(), bind_response.end(), 0x61) != bind_response.end());
+
+    const std::vector<std::uint8_t> ldap_root_dse_search{0x30, 0x05, 0x02, 0x01, 0x02, 0x63, 0x00};
+    const auto root_dse_response = protocol::ldap_ad_response(ldap_root_dse_search, {"endorium.local", "dc=endorium,dc=local", "ENDORIUM.LOCAL", "Default-First-Site-Name", "dc1"});
+    const std::string root_dse_text(root_dse_response.begin(), root_dse_response.end());
+    assert(root_dse_text.find("defaultNamingContext") != std::string::npos);
 
     const core::DhcpPool pool{
         "office",
@@ -99,6 +135,10 @@ int main() {
     config.ldap = {"127.0.0.1", 8389};
     config.ldaps = {"127.0.0.1", 8636};
     config.kerberos = {"127.0.0.1", 8088};
+    config.kpasswd = {"127.0.0.1", 8464};
+    config.global_catalog = {"127.0.0.1", 8326};
+    config.rpc_endpoint_mapper = {"127.0.0.1", 8135};
+    config.smb = {"127.0.0.1", 8445};
     config.database_url = "";
     config.admin_email = "admin@endorium.local";
     config.admin_password_hash = hash;

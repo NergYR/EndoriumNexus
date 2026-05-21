@@ -49,15 +49,19 @@ std::vector<ServiceDefinition> service_definitions() {
             true,
             "directory",
             "nexus-directory",
-            {"ldap", "ldaps", "kerberos"},
+            {"ldap", "cldap", "ldaps", "kerberos", "kpasswd", "global-catalog", "dcerpc", "smb-ipc"},
             [](const Config& config) {
                 return std::vector<std::string>{
                     config.ldap.host + ":" + std::to_string(config.ldap.port),
                     config.ldaps.host + ":" + std::to_string(config.ldaps.port),
                     config.kerberos.host + ":" + std::to_string(config.kerberos.port),
+                    config.kpasswd.host + ":" + std::to_string(config.kpasswd.port),
+                    config.global_catalog.host + ":" + std::to_string(config.global_catalog.port),
+                    config.rpc_endpoint_mapper.host + ":" + std::to_string(config.rpc_endpoint_mapper.port),
+                    config.smb.host + ":" + std::to_string(config.smb.port),
                 };
             },
-            "Directory listeners are online and ready for provisioning",
+            "Directory, LDAP discovery, and AD protocol listeners are online",
             "Directory is disabled until the shared configuration is completed",
         },
         {
@@ -102,13 +106,19 @@ Config Config::from_env() {
     Config config;
     config.environment = read_env("NEXUS_ENV", "development");
     config.domain = read_env("NEXUS_DOMAIN", "endorium.local");
+    config.directory.ad_port_profile = read_env("NEXUS_AD_PORT_PROFILE", config.directory.ad_port_profile);
+    const bool standard_ad_ports = config.directory.ad_port_profile == "standard";
     config.http = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_HTTP_PORT", 8080)};
-    config.dns_udp = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_DNS_UDP_PORT", 8053)};
-    config.dns_tcp = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_DNS_TCP_PORT", 8053)};
+    config.dns_udp = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_DNS_UDP_PORT", standard_ad_ports ? 53 : 8053)};
+    config.dns_tcp = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_DNS_TCP_PORT", standard_ad_ports ? 53 : 8053)};
     config.dhcp = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_DHCP_PORT", 8067)};
-    config.ldap = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_LDAP_PORT", 8389)};
-    config.ldaps = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_LDAPS_PORT", 8636)};
-    config.kerberos = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_KRB_PORT", 8088)};
+    config.ldap = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_LDAP_PORT", standard_ad_ports ? 389 : 8389)};
+    config.ldaps = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_LDAPS_PORT", standard_ad_ports ? 636 : 8636)};
+    config.kerberos = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_KRB_PORT", standard_ad_ports ? 88 : 8088)};
+    config.kpasswd = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_KPASSWD_PORT", standard_ad_ports ? 464 : 8464)};
+    config.global_catalog = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_GC_PORT", standard_ad_ports ? 3268 : 8326)};
+    config.rpc_endpoint_mapper = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_RPC_PORT", standard_ad_ports ? 135 : 8135)};
+    config.smb = {read_env("NEXUS_HTTP_HOST", "127.0.0.1"), read_env_int("NEXUS_SMB_PORT", standard_ad_ports ? 445 : 8445)};
     config.database_url = read_env("NEXUS_DATABASE_URL", "");
     config.admin_email = read_env("NEXUS_ADMIN_EMAIL", "admin@endorium.local");
     config.admin_password_hash = read_env("NEXUS_ADMIN_PASSWORD_HASH", "");
@@ -119,6 +129,10 @@ Config Config::from_env() {
     config.directory.base_dn = read_env("NEXUS_DIRECTORY_BASE_DN", config.directory.base_dn);
     config.directory.organization = read_env("NEXUS_DIRECTORY_ORG", config.directory.organization);
     config.directory.realm = read_env("NEXUS_DIRECTORY_REALM", config.directory.realm);
+    config.directory.site_name = read_env("NEXUS_AD_SITE_NAME", config.directory.site_name);
+    config.directory.domain_controller_host = read_env("NEXUS_AD_DC_HOST", config.directory.domain_controller_host);
+    config.directory.domain_controller_address = read_env("NEXUS_AD_DC_ADDRESS", config.directory.domain_controller_address);
+    config.directory.key_encryption_key_file = read_env("NEXUS_AD_KEY_ENCRYPTION_KEY_FILE", config.directory.key_encryption_key_file);
     config.dns.primary_ns = read_env("NEXUS_DNS_PRIMARY_NS", config.dns.primary_ns);
     config.dns.admin_mailbox = read_env("NEXUS_DNS_ADMIN_MAILBOX", config.dns.admin_mailbox);
     config.dns.default_ttl = static_cast<std::uint32_t>(read_env_int("NEXUS_DNS_DEFAULT_TTL", static_cast<int>(config.dns.default_ttl)));
