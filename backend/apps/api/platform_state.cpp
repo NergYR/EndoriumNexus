@@ -4,6 +4,7 @@
 #include "nexus/protocol/dns.hpp"
 #include "nexus/protocol/ldap.hpp"
 #include "nexus/protocol/repo.hpp"
+#include "nexus/security/ad_crypto.hpp"
 
 #include <openssl/rand.h>
 #include <openssl/sha.h>
@@ -17,8 +18,9 @@
 #include <iomanip>
 #include <iostream>
 #include <numeric>
-#include <system_error>
 #include <sstream>
+#include <stdexcept>
+#include <system_error>
 
 namespace nexus::api {
 
@@ -282,6 +284,27 @@ std::string sha256_hex(const std::string& payload) {
     return output.str();
 }
 
+std::string bytes_to_hex(const std::vector<unsigned char>& bytes) {
+    std::ostringstream output;
+    output << std::hex << std::setfill('0');
+    for (unsigned char byte : bytes) {
+        output << std::setw(2) << static_cast<int>(byte);
+    }
+    return output.str();
+}
+
+std::vector<unsigned char> random_bytes(std::size_t size) {
+    std::vector<unsigned char> bytes(size);
+    if (RAND_bytes(bytes.data(), static_cast<int>(bytes.size())) != 1) {
+        throw std::runtime_error("RAND_bytes failed");
+    }
+    return bytes;
+}
+
+std::string random_ad_secret() {
+    return bytes_to_hex(random_bytes(32));
+}
+
 void persist_active_directory_domain_to_database(
     const nexus::core::ActiveDirectoryDomain& domain,
     const std::string& domain_controller_host,
@@ -368,6 +391,80 @@ void delete_directory_object_from_database(const std::string& dn, const std::str
     PGresult* result = PQexec(conn, sql.c_str());
     if (PQresultStatus(result) != PGRES_COMMAND_OK) {
         std::cerr << "[nexus-api] failed to delete directory object: " << PQresultErrorMessage(result) << '\n';
+    }
+    PQclear(result);
+    PQfinish(conn);
+}
+
+void delete_ad_account_secret_from_database(const std::string& dn, const std::string& database_url) {
+    PGconn* conn = connect_database(database_url);
+    if (conn == nullptr) {
+        return;
+    }
+    const std::string sql = "DELETE FROM ad_account_secrets WHERE object_dn = " + sql_literal(conn, dn) + ";";
+    PGresult* result = PQexec(conn, sql.c_str());
+    PQclear(result);
+    PQfinish(conn);
+}
+
+void rename_ad_account_secret_in_database(const std::string& old_dn, const std::string& new_dn, const std::string& database_url) {
+    PGconn* conn = connect_database(database_url);
+    if (conn == nullptr) {
+        return;
+    }
+    const std::string sql =
+        "UPDATE ad_account_secrets SET object_dn = " + sql_literal(conn, new_dn) +
+        ", updated_at = now() WHERE object_dn = " + sql_literal(conn, old_dn) + ";";
+    PGresult* result = PQexec(conn, sql.c_str());
+    PQclear(result);
+    PQfinish(conn);
+}
+
+void persist_ad_account_secret_to_database(
+    const std::string& dn,
+    const std::string& password,
+    const std::string& realm,
+    const std::string& principal,
+    const nexus::core::Config& config) {
+    if (password.empty()) {
+        return;
+    }
+
+    Json::Value keys(Json::objectValue);
+    std::string wrapped_nt_hash;
+    try {
+        const auto material = nexus::security::derive_ad_credentials(password, realm, principal);
+        wrapped_nt_hash = nexus::security::seal_ad_secret(config.directory.key_encryption_key_file, material.nt_hash_hex);
+        for (const auto& key : material.kerberos_keys) {
+            Json::Value node(Json::objectValue);
+            node["salt"] = key.salt;
+            node["wrapped"] = nexus::security::seal_ad_secret(config.directory.key_encryption_key_file, key.key_hex);
+            keys[key.enctype] = node;
+        }
+    } catch (const std::exception& error) {
+        std::cerr << "[nexus-api] failed to derive or wrap AD account secret: " << error.what() << '\n';
+        return;
+    }
+
+    PGconn* conn = connect_database(config.database_url);
+    if (conn == nullptr) {
+        return;
+    }
+
+    Json::StreamWriterBuilder builder;
+    builder["indentation"] = "";
+    const auto keys_json = Json::writeString(builder, keys);
+
+    const std::string sql =
+        "INSERT INTO ad_account_secrets(object_dn,encryption_version,wrapped_nt_hash,wrapped_kerberos_keys,updated_at) VALUES (" +
+        sql_literal(conn, dn) + ",1," +
+        sql_literal(conn, wrapped_nt_hash) + "," +
+        sql_literal(conn, keys_json) + "::jsonb,now()) "
+        "ON CONFLICT (object_dn) DO UPDATE SET wrapped_nt_hash=excluded.wrapped_nt_hash, "
+        "wrapped_kerberos_keys=excluded.wrapped_kerberos_keys, encryption_version=excluded.encryption_version, updated_at=now();";
+    PGresult* result = PQexec(conn, sql.c_str());
+    if (PQresultStatus(result) != PGRES_COMMAND_OK) {
+        std::cerr << "[nexus-api] failed to persist AD account secret: " << PQresultErrorMessage(result) << '\n';
     }
     PQclear(result);
     PQfinish(conn);
@@ -1041,6 +1138,10 @@ bool PlatformState::create_active_directory_domain(
     const auto sid = [&](int rid) {
         return domain.domain_sid + "-" + std::to_string(rid);
     };
+    const auto krbtgt_password = random_ad_secret();
+    const auto dc_machine_password = random_ad_secret();
+    const auto krbtgt_dn = "cn=krbtgt,ou=Users," + domain.base_dn;
+    const auto dc_dn = "cn=" + domain_controller_host + ",ou=Domain Controllers," + domain.base_dn;
 
     std::vector<nexus::core::DirectoryObject> objects{
         {domain.base_dn, "", "domainDNS", {"top", "domain", "domainDNS"}, {{"dc", domain.dns_name.substr(0, domain.dns_name.find('.'))}, {"objectSid", domain.domain_sid}, {"nETBIOSName", domain.netbios_name}}},
@@ -1053,13 +1154,22 @@ bool PlatformState::create_active_directory_domain(
         {"cn=Domain Admins,ou=Groups," + domain.base_dn, "ou=Groups," + domain.base_dn, "group", {"top", "group"}, {{"cn", "Domain Admins"}, {"sAMAccountName", "Domain Admins"}, {"groupType", "-2147483646"}, {"objectSid", sid(512)}}},
         {"cn=Administrators,cn=Builtin," + domain.base_dn, "cn=Builtin," + domain.base_dn, "group", {"top", "group"}, {{"cn", "Administrators"}, {"sAMAccountName", "Administrators"}, {"groupType", "-2147483643"}, {"objectSid", "S-1-5-32-544"}}},
         {"cn=Guest,ou=Users," + domain.base_dn, "ou=Users," + domain.base_dn, "user", {"top", "person", "organizationalPerson", "user"}, {{"cn", "Guest"}, {"sAMAccountName", "Guest"}, {"userAccountControl", "66082"}, {"objectSid", sid(501)}}},
-        {"cn=krbtgt,ou=Users," + domain.base_dn, "ou=Users," + domain.base_dn, "user", {"top", "person", "organizationalPerson", "user"}, {{"cn", "krbtgt"}, {"sAMAccountName", "krbtgt"}, {"userAccountControl", "514"}, {"servicePrincipalName", "krbtgt/" + domain.realm}, {"objectSid", sid(502)}}},
-        {"cn=" + domain_controller_host + ",ou=Domain Controllers," + domain.base_dn, "ou=Domain Controllers," + domain.base_dn, "computer", {"top", "person", "organizationalPerson", "user", "computer"}, {{"cn", domain_controller_host}, {"sAMAccountName", uppercase_ascii(domain_controller_host) + "$"}, {"dNSHostName", domain_controller_host + "." + domain.dns_name}, {"userAccountControl", "532480"}, {"servicePrincipalName", "HOST/" + domain_controller_host + "." + domain.dns_name + ";LDAP/" + domain_controller_host + "." + domain.dns_name + ";GC/" + domain_controller_host + "." + domain.dns_name + ";CIFS/" + domain_controller_host + "." + domain.dns_name}, {"objectSid", sid(1000)}}},
+        {krbtgt_dn, "ou=Users," + domain.base_dn, "user", {"top", "person", "organizationalPerson", "user"}, {{"cn", "krbtgt"}, {"sAMAccountName", "krbtgt"}, {"userAccountControl", "514"}, {"servicePrincipalName", "krbtgt/" + domain.realm}, {"objectSid", sid(502)}, {"adSecretState", "wrapped"}}},
+        {dc_dn, "ou=Domain Controllers," + domain.base_dn, "computer", {"top", "person", "organizationalPerson", "user", "computer"}, {{"cn", domain_controller_host}, {"sAMAccountName", uppercase_ascii(domain_controller_host) + "$"}, {"dNSHostName", domain_controller_host + "." + domain.dns_name}, {"userAccountControl", "532480"}, {"servicePrincipalName", "HOST/" + domain_controller_host + "." + domain.dns_name + ";LDAP/" + domain_controller_host + "." + domain.dns_name + ";GC/" + domain_controller_host + "." + domain.dns_name + ";CIFS/" + domain_controller_host + "." + domain.dns_name}, {"objectSid", sid(1000)}, {"adSecretState", "wrapped"}}},
     };
+    for (auto& object : objects) {
+        if (object.dn == krbtgt_dn) {
+            object.attributes["userPasswordHash"] = password_hasher_.hash_password(krbtgt_password);
+        }
+        if (object.dn == dc_dn) {
+            object.attributes["userPasswordHash"] = password_hasher_.hash_password(dc_machine_password);
+        }
+    }
 
     const auto admin_cn = admin_display_name.empty() ? admin_sam_account : admin_display_name;
+    const auto admin_dn = "cn=" + admin_cn + ",ou=Users," + domain.base_dn;
     nexus::core::DirectoryObject administrator{
-        "cn=" + admin_cn + ",ou=Users," + domain.base_dn,
+        admin_dn,
         "ou=Users," + domain.base_dn,
         "user",
         {"top", "person", "organizationalPerson", "user"},
@@ -1070,6 +1180,7 @@ bool PlatformState::create_active_directory_domain(
             {"userPrincipalName", admin_sam_account + "@" + domain.dns_name},
             {"userAccountControl", "512"},
             {"objectSid", sid(500)},
+            {"adSecretState", "wrapped"},
             {"memberOf", "cn=Domain Admins,ou=Groups," + domain.base_dn},
         }};
     administrator.attributes["userPasswordHash"] = password_hasher_.hash_password(admin_password);
@@ -1084,6 +1195,9 @@ bool PlatformState::create_active_directory_domain(
     for (const auto& object : objects) {
         persist_directory_object_to_database(object, config_.database_url);
     }
+    persist_ad_account_secret_to_database(admin_dn, admin_password, domain.realm, admin_sam_account, config_);
+    persist_ad_account_secret_to_database(krbtgt_dn, krbtgt_password, domain.realm, "krbtgt", config_);
+    persist_ad_account_secret_to_database(dc_dn, dc_machine_password, domain.realm, uppercase_ascii(domain_controller_host) + "$", config_);
 
     std::scoped_lock lock(mutex_);
     ad_domain_ = domain;
@@ -1191,10 +1305,15 @@ std::vector<nexus::core::ActiveDirectoryReadinessItem> PlatformState::active_dir
         {"dns", "AD DNS zone", has_dns_zone, has_dns_zone ? "DNS zone exists for the domain" : "The domain DNS zone is missing"},
         {"dns-locator", "AD DNS locator records", has_dns_locator, has_dns_locator ? "LDAP/Kerberos SRV locator records are published" : "Publish _ldap and _kerberos SRV records"},
         {"administrator", "Domain administrator", has_admin_user, has_admin_user ? "Administrator account exists" : "Create the initial Administrator user"},
+        {"ad-secrets", "AD account secrets", has_admin_user, has_admin_user ? "Password-bearing accounts are prepared for wrapped NT/Kerberos keys" : "Create an account password before AD keys can be derived"},
         {"computers", "Computer account container", has_machine_container, has_machine_container ? "CN=Computers container exists" : "Create the default computer container"},
         {"ldap-rootdse", "LDAP RootDSE discovery", true, "LDAP bind and RootDSE probes are served by nexus-directory"},
-        {"ldap-ad", "LDAP AD object protocol", false, "Object search/add/modify still need schema-aware AD LDAP semantics"},
-        {"kerberos", "Kerberos KDC", false, "AS/TGS ticket handling is not implemented yet"},
+        {"cldap-netlogon", "CLDAP NetLogon locator", true, "LDAP ping netlogon returns a NETLOGON_SAM_LOGON_RESPONSE_EX locator response"},
+        {"ldap-search", "LDAP AD object search", true, "Subtree/base searches over stored AD objects are served with basic equality, presence and SPN filters"},
+        {"ldap-ad", "LDAP AD object mutations", false, "LDAP add/modify/delete still need schema-aware AD write semantics"},
+        {"kerberos-probe", "Kerberos KDC probe", true, "KDC TCP/UDP listeners return structured Kerberos errors for AS/TGS probes"},
+        {"kerberos-preauth", "Kerberos pre-authentication", true, "PA-ENC-TIMESTAMP is parsed and validated with AES-CTS-HMAC-SHA1 keys"},
+        {"kerberos", "Kerberos KDC tickets", false, "AS/TGS ticket encryption and PAC issuance are not implemented yet"},
         {"netlogon", "Netlogon / MS-RPC", false, "Windows domain join still needs Netlogon, SAMR and LSA RPC"},
         {"sysvol", "SMB SYSVOL / NETLOGON", false, "SYSVOL and NETLOGON shares are not implemented yet"},
     };
@@ -1206,7 +1325,7 @@ Json::Value PlatformState::active_directory_join_guide() const {
     guide["supported"] = false;
     guide["target"] = "Windows 11 Pro";
     guide["message"] = ad_domain_.has_value()
-        ? "The domain model is configured, but native LDAP/Kerberos/Netlogon/SMB protocol milestones are still required before Windows can join."
+        ? "The domain model, DNS locator, LDAP RootDSE and CLDAP NetLogon locator are configured, but Kerberos tickets, RPC Netlogon/SAMR/LSA and SMB SYSVOL are still required before Windows can join."
         : "Create a Windows domain in Nexus before attempting a Windows join.";
     if (ad_domain_.has_value()) {
         guide["domain"] = ad_domain_->dns_name;
@@ -1573,14 +1692,18 @@ bool PlatformState::create_directory_object(
     }
     if (!password.empty()) {
         object.attributes["userPasswordHash"] = password_hasher_.hash_password(password);
+        object.attributes["adSecretState"] = "wrapped";
     }
-
-    persist_directory_object_to_database(object, config_.database_url);
 
     std::scoped_lock lock(mutex_);
     const auto duplicate = std::find_if(directory_.begin(), directory_.end(), [&](const auto& current) { return current.dn == object.dn; });
     if (duplicate != directory_.end()) {
         return false;
+    }
+    persist_directory_object_to_database(object, config_.database_url);
+    if (!password.empty() && ad_domain_.has_value()) {
+        const auto principal = object.attributes.contains("sAMAccountName") ? object.attributes.at("sAMAccountName") : object.dn;
+        persist_ad_account_secret_to_database(object.dn, password, ad_domain_->realm, principal, config_);
     }
     directory_.push_back(std::move(object));
     jobs_.enqueue("directory", "Create object " + directory_.back().dn);
@@ -1617,12 +1740,26 @@ bool PlatformState::update_directory_object(
         if (existing_hash != it->attributes.end() && object.attributes.find("userPasswordHash") == object.attributes.end()) {
             object.attributes["userPasswordHash"] = existing_hash->second;
         }
+        const auto existing_secret_state = it->attributes.find("adSecretState");
+        if (existing_secret_state != it->attributes.end() && object.attributes.find("adSecretState") == object.attributes.end()) {
+            object.attributes["adSecretState"] = existing_secret_state->second;
+        }
     } else {
         object.attributes["userPasswordHash"] = password_hasher_.hash_password(password);
+        object.attributes["adSecretState"] = "wrapped";
     }
 
     persist_directory_object_to_database(object, config_.database_url);
+    if (!password.empty() && ad_domain_.has_value()) {
+        const auto principal = object.attributes.contains("sAMAccountName") ? object.attributes.at("sAMAccountName") : object.dn;
+        persist_ad_account_secret_to_database(object.dn, password, ad_domain_->realm, principal, config_);
+    }
     if (dn != object.dn) {
+        if (password.empty()) {
+            rename_ad_account_secret_in_database(dn, object.dn, config_.database_url);
+        } else {
+            delete_ad_account_secret_from_database(dn, config_.database_url);
+        }
         delete_directory_object_from_database(dn, config_.database_url);
     }
 
@@ -1640,6 +1777,7 @@ bool PlatformState::delete_directory_object(const std::string& dn, const std::st
         return false;
     }
     delete_directory_object_from_database(dn, config_.database_url);
+    delete_ad_account_secret_from_database(dn, config_.database_url);
     directory_.erase(it);
     jobs_.enqueue("directory", "Delete object " + dn);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "directory", "object.deleted", dn});

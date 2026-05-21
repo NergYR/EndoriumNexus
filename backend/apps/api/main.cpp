@@ -52,6 +52,54 @@ Json::Value to_json(const nexus::core::DirectoryObject& object) {
     return node;
 }
 
+Json::Value to_ad_attribute_value(const std::string& key, const std::string& value) {
+    Json::Value node(Json::objectValue);
+    if (key == "objectSid") {
+        node["type"] = "sid";
+    } else if (key == "objectGUID") {
+        node["type"] = "guid";
+    } else if (key == "userAccountControl" || key == "primaryGroupID" || key == "groupType") {
+        node["type"] = "int";
+    } else if (key == "servicePrincipalName" || key == "member" || key == "memberOf") {
+        node["type"] = "string[]";
+    } else {
+        node["type"] = "string";
+    }
+
+    if (node["type"].asString() == "string[]") {
+        node["value"] = Json::arrayValue;
+        std::stringstream stream(value);
+        std::string entry;
+        while (std::getline(stream, entry, ';')) {
+            if (!entry.empty()) {
+                node["value"].append(entry);
+            }
+        }
+    } else {
+        node["value"] = value;
+    }
+    return node;
+}
+
+Json::Value to_ad_json(const nexus::core::DirectoryObject& object) {
+    Json::Value node(Json::objectValue);
+    node["dn"] = object.dn;
+    node["parentDn"] = object.parent_dn;
+    node["kind"] = object.kind;
+    node["objectClasses"] = Json::arrayValue;
+    for (const auto& object_class : object.object_classes) {
+        node["objectClasses"].append(object_class);
+    }
+    node["attributes"] = Json::objectValue;
+    for (const auto& [key, value] : object.attributes) {
+        if (key == "userPasswordHash") {
+            continue;
+        }
+        node["attributes"][key] = to_ad_attribute_value(key, value);
+    }
+    return node;
+}
+
 Json::Value to_json(const nexus::core::ActiveDirectoryDomain& domain) {
     Json::Value node(Json::objectValue);
     node["dnsName"] = domain.dns_name;
@@ -875,6 +923,17 @@ int main() {
         "/api/v1/ad/join-guide",
         [state](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
             respond_json(drogon::k200OK, state->active_directory_join_guide(), std::move(callback));
+        },
+        {drogon::Get});
+
+    drogon::app().registerHandler(
+        "/api/v1/ad/objects",
+        [state](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            Json::Value payload(Json::arrayValue);
+            for (const auto& object : state->directory_objects()) {
+                payload.append(to_ad_json(object));
+            }
+            respond_json(drogon::k200OK, std::move(payload), std::move(callback));
         },
         {drogon::Get});
 

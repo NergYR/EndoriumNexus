@@ -44,6 +44,7 @@ set(NEXUS_CORE_SOURCES
 )
 
 set(NEXUS_SECURITY_SOURCES
+  libs/security/src/ad_crypto.cpp
   libs/security/src/password_hasher.cpp
   libs/security/src/totp.cpp
   libs/security/src/pki.cpp
@@ -60,6 +61,7 @@ set(NEXUS_JOBS_SOURCES
 set(NEXUS_PROTOCOL_SOURCES
   libs/protocol/src/dns.cpp
   libs/protocol/src/dhcp.cpp
+  libs/protocol/src/kerberos.cpp
   libs/protocol/src/ldap.cpp
   libs/protocol/src/repo.cpp
 )
@@ -98,6 +100,7 @@ target_link_libraries(nexus_protocol
   PUBLIC
     nexus_core
     ZLIB::ZLIB
+    OpenSSL::Crypto
 )
 nexus_apply_sanitizers(nexus_protocol)
 
@@ -122,7 +125,8 @@ target_link_libraries(nexus-api
 nexus_apply_sanitizers(nexus-api)
 
 add_executable(nexus-directory apps/directory/main.cpp)
-target_link_libraries(nexus-directory PRIVATE nexus_core nexus_protocol)
+target_include_directories(nexus-directory PRIVATE ${JSONCPP_INCLUDE_DIRS})
+target_link_libraries(nexus-directory PRIVATE nexus_core nexus_protocol nexus_security PostgreSQL::PostgreSQL ${JSONCPP_LIBRARIES})
 nexus_apply_sanitizers(nexus-directory)
 
 add_executable(nexus-network apps/network/main.cpp)

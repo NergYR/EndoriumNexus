@@ -74,7 +74,12 @@ create table if not exists ad_protocol_status (
 insert into ad_protocol_status(protocol, implemented, detail) values
     ('dns-ad-locator', true, 'DNS UDP/TCP AD locator answers A and SRV records for the configured domain controller'),
     ('ldap-rootdse', true, 'LDAP bind and RootDSE discovery are implemented for early AD client probes'),
-    ('ldap-ad', false, 'LDAP AD-compatible object search/add/modify is not complete yet'),
+    ('cldap-netlogon', true, 'LDAP ping netlogon returns a NETLOGON_SAM_LOGON_RESPONSE_EX locator response'),
+    ('ldap-search', true, 'LDAP AD object subtree/base search is implemented for stored Nexus directory objects'),
+    ('kerberos-probe', true, 'KDC TCP/UDP listeners return structured Kerberos errors for AS/TGS probes'),
+    ('kerberos-preauth', true, 'PA-ENC-TIMESTAMP is parsed and validated with AES-CTS-HMAC-SHA1 Kerberos keys'),
+    ('ad-secrets', true, 'AD-compatible NT hash and Kerberos key material is wrapped at rest for password-bearing accounts'),
+    ('ldap-ad', false, 'LDAP AD-compatible add/modify/delete is not complete yet'),
     ('kerberos-kdc', false, 'Native Kerberos KDC is not implemented yet'),
     ('netlogon-rpc', false, 'MS-RPC Netlogon/SAMR/LSA are not implemented yet'),
     ('smb-sysvol', false, 'SMB SYSVOL/NETLOGON shares are not implemented yet')

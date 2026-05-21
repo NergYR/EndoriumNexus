@@ -2,8 +2,10 @@
 #include "nexus/jobs/queue.hpp"
 #include "nexus/protocol/dhcp.hpp"
 #include "nexus/protocol/dns.hpp"
+#include "nexus/protocol/kerberos.hpp"
 #include "nexus/protocol/ldap.hpp"
 #include "nexus/protocol/repo.hpp"
+#include "nexus/security/ad_crypto.hpp"
 #include "nexus/security/password_hasher.hpp"
 #include "nexus/security/pki.hpp"
 #include "nexus/security/totp.hpp"
@@ -16,8 +18,167 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <string>
 #include <vector>
+
+namespace {
+
+using TestBytes = std::vector<std::uint8_t>;
+
+void append_test_length(TestBytes& output, std::size_t length) {
+    if (length < 0x80) {
+        output.push_back(static_cast<std::uint8_t>(length));
+        return;
+    }
+    if (length > 0xff) {
+        output.push_back(0x82);
+        output.push_back(static_cast<std::uint8_t>((length >> 8U) & 0xffU));
+        output.push_back(static_cast<std::uint8_t>(length & 0xffU));
+        return;
+    }
+    output.push_back(0x81);
+    output.push_back(static_cast<std::uint8_t>(length));
+}
+
+TestBytes test_tlv(std::uint8_t tag, const TestBytes& payload) {
+    TestBytes output{tag};
+    append_test_length(output, payload.size());
+    output.insert(output.end(), payload.begin(), payload.end());
+    return output;
+}
+
+TestBytes test_int(int value) {
+    return test_tlv(0x02, {static_cast<std::uint8_t>(value)});
+}
+
+TestBytes test_enum(int value) {
+    return test_tlv(0x0a, {static_cast<std::uint8_t>(value)});
+}
+
+TestBytes test_bool(bool value) {
+    return test_tlv(0x01, {static_cast<std::uint8_t>(value ? 0xff : 0x00)});
+}
+
+TestBytes test_string(const std::string& value) {
+    return test_tlv(0x1b, TestBytes(value.begin(), value.end()));
+}
+
+TestBytes test_generalized_time(const std::string& value) {
+    return test_tlv(0x18, TestBytes(value.begin(), value.end()));
+}
+
+TestBytes test_ldap_string(const std::string& value) {
+    return test_tlv(0x04, TestBytes(value.begin(), value.end()));
+}
+
+TestBytes test_octet_string(const TestBytes& value) {
+    return test_tlv(0x04, value);
+}
+
+TestBytes test_concat(std::initializer_list<TestBytes> parts) {
+    TestBytes output;
+    for (const auto& part : parts) {
+        output.insert(output.end(), part.begin(), part.end());
+    }
+    return output;
+}
+
+TestBytes test_seq(const TestBytes& payload) {
+    return test_tlv(0x30, payload);
+}
+
+TestBytes test_ctx(std::uint8_t index, const TestBytes& payload) {
+    return test_tlv(static_cast<std::uint8_t>(0xa0U + index), payload);
+}
+
+TestBytes test_pa_data(int type, const TestBytes& value) {
+    return test_seq(test_concat({
+        test_ctx(1, test_int(type)),
+        test_ctx(2, test_octet_string(value)),
+    }));
+}
+
+TestBytes test_ldap_present_filter(const std::string& attribute) {
+    return test_tlv(0x87, TestBytes(attribute.begin(), attribute.end()));
+}
+
+TestBytes test_ldap_equality_filter(const std::string& attribute, const std::string& value) {
+    return test_tlv(0xa3, test_concat({test_ldap_string(attribute), test_ldap_string(value)}));
+}
+
+TestBytes test_ldap_search_request(
+    int message_id,
+    const std::string& base_dn,
+    int scope,
+    const TestBytes& filter,
+    const std::vector<std::string>& attributes) {
+    TestBytes attribute_list;
+    for (const auto& attribute : attributes) {
+        const auto encoded = test_ldap_string(attribute);
+        attribute_list.insert(attribute_list.end(), encoded.begin(), encoded.end());
+    }
+    const auto search = test_tlv(0x63, test_concat({
+        test_ldap_string(base_dn),
+        test_enum(scope),
+        test_enum(0),
+        test_int(0),
+        test_int(0),
+        test_bool(false),
+        filter,
+        test_seq(attribute_list),
+    }));
+    return test_seq(test_concat({test_int(message_id), search}));
+}
+
+TestBytes test_encrypted_data(int enctype, const TestBytes& cipher = {0x00, 0x01, 0x02}) {
+    return test_seq(test_concat({
+        test_ctx(0, test_int(enctype)),
+        test_ctx(2, test_octet_string(cipher)),
+    }));
+}
+
+TestBytes test_as_req(
+    const std::string& principal,
+    const std::string& realm,
+    bool include_enc_timestamp = false,
+    const TestBytes& encrypted_timestamp_cipher = {}) {
+    const auto principal_name = test_seq(test_concat({
+        test_ctx(0, test_int(1)),
+        test_ctx(1, test_seq(test_string(principal))),
+    }));
+    const auto req_body = test_seq(test_concat({
+        test_ctx(1, principal_name),
+        test_ctx(2, test_string(realm)),
+        test_ctx(8, test_seq(test_concat({test_int(18), test_int(17)}))),
+    }));
+    TestBytes padata;
+    if (include_enc_timestamp) {
+        padata = test_ctx(3, test_seq(test_pa_data(2, test_encrypted_data(18, encrypted_timestamp_cipher.empty() ? TestBytes{0x00, 0x01, 0x02} : encrypted_timestamp_cipher))));
+    }
+    TestBytes kdc_payload = test_concat({
+        test_ctx(1, test_int(5)),
+        test_ctx(2, test_int(10)),
+    });
+    if (!padata.empty()) {
+        kdc_payload.insert(kdc_payload.end(), padata.begin(), padata.end());
+    }
+    const auto body_context = test_ctx(4, req_body);
+    kdc_payload.insert(kdc_payload.end(), body_context.begin(), body_context.end());
+    const auto kdc_req = test_seq(kdc_payload);
+    return test_tlv(0x6a, kdc_req);
+}
+
+nexus::protocol::KerberosPrincipal test_kerberos_principal(
+    const std::string& principal,
+    std::vector<nexus::protocol::KerberosKey> keys = {
+        {18, "aes256-cts-hmac-sha1-96", "ENDORIUM.LOCALadministrator", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"},
+        {17, "aes128-cts-hmac-sha1-96", "ENDORIUM.LOCALadministrator", "00112233445566778899aabbccddeeff"},
+    }) {
+    return {principal, "ENDORIUM.LOCAL", !keys.empty(), keys};
+}
+
+}  // namespace
 
 int main() {
     using namespace nexus;
@@ -69,10 +230,117 @@ int main() {
     assert(!bind_response.empty());
     assert(std::find(bind_response.begin(), bind_response.end(), 0x61) != bind_response.end());
 
-    const std::vector<std::uint8_t> ldap_root_dse_search{0x30, 0x05, 0x02, 0x01, 0x02, 0x63, 0x00};
+    const auto ldap_root_dse_search = test_ldap_search_request(2, "", 0, test_ldap_present_filter("objectClass"), {"*"});
     const auto root_dse_response = protocol::ldap_ad_response(ldap_root_dse_search, {"endorium.local", "dc=endorium,dc=local", "ENDORIUM.LOCAL", "Default-First-Site-Name", "dc1"});
     const std::string root_dse_text(root_dse_response.begin(), root_dse_response.end());
     assert(root_dse_text.find("defaultNamingContext") != std::string::npos);
+
+    const auto ldap_netlogon_search = test_ldap_search_request(3, "", 0, test_ldap_present_filter("objectClass"), {"NetLogon"});
+    const auto netlogon_response = protocol::ldap_ad_response(
+        ldap_netlogon_search,
+        {"endorium.local", "dc=endorium,dc=local", "ENDORIUM.LOCAL", "Default-First-Site-Name", "dc1", "10.10.10.10"});
+    const std::string netlogon_text(netlogon_response.begin(), netlogon_response.end());
+    assert(netlogon_text.find("NetLogon") != std::string::npos);
+    const std::vector<std::uint8_t> netlogon_opcode{0x17, 0x00, 0x00, 0x00};
+    assert(std::search(netlogon_response.begin(), netlogon_response.end(), netlogon_opcode.begin(), netlogon_opcode.end()) != netlogon_response.end());
+    assert(netlogon_text.find("dc1") != std::string::npos);
+
+    const std::vector<protocol::LdapObject> ldap_objects{
+        {"dc=endorium,dc=local", "", "domainDNS", {"top", "domain", "domainDNS"}, {{"dc", "endorium"}, {"objectSid", "S-1-5-21-1"}}},
+        {"cn=Administrator,ou=Users,dc=endorium,dc=local", "ou=Users,dc=endorium,dc=local", "user", {"top", "person", "user"}, {{"cn", "Administrator"}, {"sAMAccountName", "Administrator"}, {"userPasswordHash", "hidden"}}},
+        {"cn=dc1,ou=Domain Controllers,dc=endorium,dc=local", "ou=Domain Controllers,dc=endorium,dc=local", "computer", {"top", "computer"}, {{"cn", "dc1"}, {"sAMAccountName", "DC1$"}, {"servicePrincipalName", "HOST/dc1.endorium.local;LDAP/dc1.endorium.local"}}},
+    };
+    const auto ldap_user_search = test_ldap_search_request(
+        4,
+        "dc=endorium,dc=local",
+        2,
+        test_ldap_equality_filter("sAMAccountName", "Administrator"),
+        {"cn", "sAMAccountName", "objectClass", "userPasswordHash"});
+    const auto user_search_response = protocol::ldap_ad_response(
+        ldap_user_search,
+        {"endorium.local", "dc=endorium,dc=local", "ENDORIUM.LOCAL", "Default-First-Site-Name", "dc1"},
+        ldap_objects);
+    const std::string user_search_text(user_search_response.begin(), user_search_response.end());
+    assert(user_search_text.find("cn=Administrator,ou=Users,dc=endorium,dc=local") != std::string::npos);
+    assert(user_search_text.find("sAMAccountName") != std::string::npos);
+    assert(user_search_text.find("hidden") == std::string::npos);
+
+    const auto ldap_spn_search = test_ldap_search_request(
+        5,
+        "dc=endorium,dc=local",
+        2,
+        test_ldap_equality_filter("servicePrincipalName", "LDAP/dc1.endorium.local"),
+        {"servicePrincipalName"});
+    const auto spn_search_response = protocol::ldap_ad_response(
+        ldap_spn_search,
+        {"endorium.local", "dc=endorium,dc=local", "ENDORIUM.LOCAL", "Default-First-Site-Name", "dc1"},
+        ldap_objects);
+    const std::string spn_search_text(spn_search_response.begin(), spn_search_response.end());
+    assert(spn_search_text.find("cn=dc1,ou=Domain Controllers,dc=endorium,dc=local") != std::string::npos);
+    assert(spn_search_text.find("HOST/dc1.endorium.local") != std::string::npos);
+
+    const auto as_req_probe = test_as_req("Administrator", "ENDORIUM.LOCAL");
+    const auto parsed_as_req = protocol::parse_kerberos_request(as_req_probe);
+    assert(parsed_as_req.valid);
+    assert(parsed_as_req.message_type == 10);
+    assert(parsed_as_req.realm == "ENDORIUM.LOCAL");
+    assert(parsed_as_req.client_principal == "Administrator");
+    assert(parsed_as_req.requested_etypes.size() == 2);
+    assert(!parsed_as_req.has_padata);
+    const auto krb_error = protocol::kerberos_error_response(as_req_probe, {"ENDORIUM.LOCAL", "krbtgt", {test_kerberos_principal("Administrator")}});
+    assert(!krb_error.empty());
+    assert(krb_error.front() == 0x7e);
+    const std::string krb_error_text(krb_error.begin(), krb_error.end());
+    assert(krb_error_text.find("pre-authentication required") != std::string::npos);
+    assert(std::find(krb_error.begin(), krb_error.end(), 0xac) != krb_error.end());
+    const std::vector<std::uint8_t> pa_etype_info2_pattern{0x02, 0x01, 0x13};
+    assert(std::search(krb_error.begin(), krb_error.end(), pa_etype_info2_pattern.begin(), pa_etype_info2_pattern.end()) != krb_error.end());
+    const auto unknown_krb_error = protocol::kerberos_error_response(as_req_probe, {"ENDORIUM.LOCAL", "krbtgt", {}});
+    const std::string unknown_krb_error_text(unknown_krb_error.begin(), unknown_krb_error.end());
+    assert(unknown_krb_error_text.find("client principal unknown") != std::string::npos);
+    const auto preauthed_as_req = test_as_req("Administrator", "ENDORIUM.LOCAL", true);
+    const auto parsed_preauthed_as_req = protocol::parse_kerberos_request(preauthed_as_req);
+    assert(parsed_preauthed_as_req.has_padata);
+    assert(parsed_preauthed_as_req.padata_types.size() == 1);
+    assert(parsed_preauthed_as_req.padata_types[0] == 2);
+    assert(parsed_preauthed_as_req.encrypted_timestamp_etypes.size() == 1);
+    assert(parsed_preauthed_as_req.encrypted_timestamp_etypes[0] == 18);
+    assert(parsed_preauthed_as_req.encrypted_timestamps.size() == 1);
+    const auto preauth_failed = protocol::kerberos_error_response(preauthed_as_req, {"ENDORIUM.LOCAL", "krbtgt", {test_kerberos_principal("Administrator")}});
+    const std::string preauth_failed_text(preauth_failed.begin(), preauth_failed.end());
+    assert(preauth_failed_text.find("encrypted timestamp validation failed") != std::string::npos);
+    const auto unsupported_etype = protocol::kerberos_error_response(
+        preauthed_as_req,
+        {"ENDORIUM.LOCAL", "krbtgt", {test_kerberos_principal("Administrator", {{17, "aes128-cts-hmac-sha1-96", "ENDORIUM.LOCALadministrator", "00112233445566778899aabbccddeeff"}})}});
+    const std::string unsupported_etype_text(unsupported_etype.begin(), unsupported_etype.end());
+    assert(unsupported_etype_text.find("etype is not available") != std::string::npos);
+    const auto real_admin_key = security::derive_ad_kerberos_aes_key("ChangeMe-AD-1", "ENDORIUM.LOCALadministrator", 32);
+    const auto encrypted_timestamp_plaintext = test_seq(test_ctx(0, test_generalized_time("20260521120000Z")));
+    const TestBytes deterministic_confounder{
+        0x00, 0x01, 0x02, 0x03,
+        0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b,
+        0x0c, 0x0d, 0x0e, 0x0f};
+    const auto real_encrypted_timestamp = protocol::kerberos_encrypt_aes_cts_hmac_sha1(
+        encrypted_timestamp_plaintext,
+        real_admin_key,
+        1,
+        deterministic_confounder);
+    const auto valid_preauthed_as_req = test_as_req("Administrator", "ENDORIUM.LOCAL", true, real_encrypted_timestamp);
+    const auto valid_preauth_response = protocol::kerberos_error_response(
+        valid_preauthed_as_req,
+        {"ENDORIUM.LOCAL", "krbtgt", {test_kerberos_principal("Administrator", {{18, "aes256-cts-hmac-sha1-96", "ENDORIUM.LOCALadministrator", real_admin_key}})}});
+    const std::string valid_preauth_text(valid_preauth_response.begin(), valid_preauth_response.end());
+    assert(valid_preauth_text.find("AS-REP/TGT issuance") != std::string::npos);
+    std::vector<std::uint8_t> tcp_as_req_probe{
+        0x00,
+        0x00,
+        static_cast<std::uint8_t>((as_req_probe.size() >> 8U) & 0xffU),
+        static_cast<std::uint8_t>(as_req_probe.size() & 0xffU)};
+    tcp_as_req_probe.insert(tcp_as_req_probe.end(), as_req_probe.begin(), as_req_probe.end());
+    const auto tcp_krb_error = protocol::kerberos_tcp_error_response(tcp_as_req_probe, {"ENDORIUM.LOCAL", "krbtgt", {test_kerberos_principal("Administrator")}});
+    assert(tcp_krb_error.size() > krb_error.size());
+    assert(tcp_krb_error[4] == 0x7e);
 
     const core::DhcpPool pool{
         "office",
@@ -91,6 +359,26 @@ int main() {
     const auto hash = hasher.hash_password("endorium-admin");
     assert(hasher.verify_password("endorium-admin", hash));
     assert(!hasher.verify_password("wrong-password", hash));
+
+    const auto ad_credentials = security::derive_ad_credentials("password", "ENDORIUM.LOCAL", "Administrator");
+    assert(ad_credentials.nt_hash_hex == "8846f7eaee8fb117ad06bdd830b7586c");
+    assert(ad_credentials.kerberos_keys.size() == 2);
+    assert(ad_credentials.kerberos_keys[0].salt == "ENDORIUM.LOCALadministrator");
+    assert(security::derive_ad_kerberos_aes_key("password", "ATHENA.MIT.EDUraeburn", 16, 1) == "42263c6e89f4fc28b8df68ee09799f15");
+    assert(security::derive_ad_kerberos_aes_key("password", "ATHENA.MIT.EDUraeburn", 32, 1) == "fe697b52bc0d3ce14432ba036a92e65bbb52280990a2fa27883998d72af30161");
+    assert(security::derive_ad_kerberos_aes_key("password", "ATHENA.MIT.EDUraeburn", 16, 1200) == "4c01cd46d632d01e6dbe230a01ed642a");
+    assert(security::derive_ad_kerberos_aes_key("password", "ATHENA.MIT.EDUraeburn", 32, 1200) == "55a6ac740ad17b4846941051e1e8b0a7548d93b0ab30a8bc3ff16280382b8c2a");
+    const auto secret_test_root = std::filesystem::temp_directory_path() / "endorium-nexus-ad-secret-test";
+    std::filesystem::remove_all(secret_test_root);
+    std::filesystem::create_directories(secret_test_root);
+    const auto secret_key_file = secret_test_root / "ad-kek.key";
+    const auto sealed_secret = security::seal_ad_secret(secret_key_file, "kerberos-key-material");
+    const auto opened_secret = security::open_ad_secret(secret_key_file, sealed_secret);
+    assert(opened_secret.has_value());
+    assert(*opened_secret == "kerberos-key-material");
+    std::filesystem::remove(secret_key_file);
+    assert(!security::open_ad_secret(secret_key_file, sealed_secret).has_value());
+    std::filesystem::remove_all(secret_test_root);
 
     security::Totp totp;
     const auto secret = totp.generate_secret();
@@ -170,6 +458,17 @@ int main() {
     assert(std::any_of(ad_objects.begin(), ad_objects.end(), [](const auto& object) {
         return object.kind == "user" && object.attributes.contains("sAMAccountName") && object.attributes.at("sAMAccountName") == "Administrator";
     }));
+    assert(std::any_of(ad_objects.begin(), ad_objects.end(), [](const auto& object) {
+        return object.attributes.contains("sAMAccountName") &&
+               object.attributes.at("sAMAccountName") == "krbtgt" &&
+               object.attributes.contains("adSecretState") &&
+               object.attributes.at("adSecretState") == "wrapped";
+    }));
+    assert(std::any_of(ad_objects.begin(), ad_objects.end(), [](const auto& object) {
+        return object.kind == "computer" &&
+               object.attributes.contains("servicePrincipalName") &&
+               object.attributes.contains("adSecretState");
+    }));
     assert(first_state.find_zone("endorium.local").has_value());
     assert(!first_state.create_active_directory_domain(
         {"other.local", "OTHER", "", "", "", ""},
@@ -194,6 +493,7 @@ int main() {
     assert(alice != directory.end());
     assert(alice->attributes.count("userPasswordHash") == 1);
     assert(alice->attributes.at("userPasswordHash") != "alice-secret");
+    assert(alice->attributes.at("adSecretState") == "wrapped");
     assert(!first_state.create_directory_object({"not-a-dn", "", "user", {"person"}, {}}, "", "tester"));
     user.attributes["mail"] = "alice@endorium.local";
     assert(first_state.update_directory_object("uid=alice,ou=People,dc=endorium,dc=local", user, "", "tester"));
