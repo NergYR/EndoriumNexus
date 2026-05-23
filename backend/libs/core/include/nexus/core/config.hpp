@@ -33,11 +33,6 @@ struct DirectoryConfig {
     std::string base_dn{"dc=endorium,dc=local"};
     std::string organization{"Endorium"};
     std::string realm{"ENDORIUM.LOCAL"};
-    std::string ad_port_profile{"dev"};
-    std::string site_name{"Default-First-Site-Name"};
-    std::string domain_controller_host{"dc1"};
-    std::string domain_controller_address{"127.0.0.1"};
-    std::string key_encryption_key_file{"var/state/ad-kek.key"};
 };
 
 struct DnsConfig {
@@ -75,10 +70,6 @@ struct Config {
     ListenerConfig ldap;
     ListenerConfig ldaps;
     ListenerConfig kerberos;
-    ListenerConfig kpasswd;
-    ListenerConfig global_catalog;
-    ListenerConfig rpc_endpoint_mapper;
-    ListenerConfig smb;
     std::string database_url;
     std::string admin_email;
     std::string admin_password_hash;

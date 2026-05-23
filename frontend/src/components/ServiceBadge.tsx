@@ -1,16 +1,16 @@
 const stateStyles: Record<string, string> = {
-  healthy: "border-cyan-300/30 bg-cyan-300/10 text-cyan-100",
-  degraded: "border-amber-300/30 bg-amber-300/10 text-amber-100",
-  disabled: "border-slate-300/20 bg-slate-300/10 text-slate-100",
-  offline: "border-rose-300/30 bg-rose-300/10 text-rose-100"
+  healthy: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  degraded: "border-amber-200 bg-amber-50 text-amber-700",
+  disabled: "border-slate-200 bg-slate-100 text-slate-600",
+  offline: "border-rose-200 bg-rose-50 text-rose-700"
 };
 
 export function ServiceBadge({ state }: { state: string }) {
   return (
     <span
       className={[
-        "inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.18em]",
-        stateStyles[state] ?? "border-slate-300/20 bg-slate-300/10 text-slate-100"
+        "inline-flex rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.16em]",
+        stateStyles[state] ?? "border-slate-200 bg-slate-100 text-slate-600"
       ].join(" ")}
     >
       {state}

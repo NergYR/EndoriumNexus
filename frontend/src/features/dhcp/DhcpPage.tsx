@@ -245,7 +245,7 @@ export function DhcpPage() {
   const optionPreview = useMemo(() => buildOptionsFromForm(form), [form]);
 
   if (pools.isLoading || !pools.data) {
-    return <div className="text-sm text-slate-400">Loading DHCP pools...</div>;
+    return <div className="text-sm text-slate-500">Chargement des pools DHCP...</div>;
   }
 
   const beginEdit = (name: string) => {
@@ -303,12 +303,12 @@ export function DhcpPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-white/8 bg-black/15 px-4 py-3 md:flex-row md:items-center">
-        <p className="text-sm text-slate-400">
+      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 md:flex-row md:items-center">
+        <p className="text-sm text-slate-600">
           Modifications are saved immediately but require a service restart to take effect.
         </p>
         <button
-          className="rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/5 disabled:opacity-60"
+          className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
           onClick={() => restartService.mutate()}
           type="button"
           disabled={restartService.isPending}
@@ -323,17 +323,17 @@ export function DhcpPage() {
           <div className="space-y-5">
             {pools.data.length ? (
               pools.data.map((pool) => (
-                <section className="rounded-3xl border border-white/8 bg-white/4 p-5" key={pool.name}>
+                <section className="rounded-3xl border border-slate-200 bg-white p-5" key={pool.name}>
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <h3 className="text-lg font-semibold text-slate-100">{pool.name}</h3>
-                      <p className="text-sm text-slate-400">
+                      <h3 className="text-lg font-semibold text-slate-900">{pool.name}</h3>
+                      <p className="text-sm text-slate-600">
                         {pool.subnet} - {pool.rangeStart} to {pool.rangeEnd}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button
-                        className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-200 transition hover:border-cyan-300/30 hover:bg-cyan-300/10"
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-600 transition hover:bg-slate-50"
                         onClick={() => beginEdit(pool.name)}
                         type="button"
                       >
@@ -346,7 +346,7 @@ export function DhcpPage() {
                       >
                         Delete
                       </button>
-                      <div className="rounded-full border border-white/8 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-200">
+                      <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-600">
                         {pool.leases.length} leases
                       </div>
                     </div>
@@ -355,9 +355,9 @@ export function DhcpPage() {
                   {Object.keys(pool.options).length ? (
                     <div className="mt-4 grid gap-2 md:grid-cols-2">
                       {Object.entries(pool.options).map(([key, value]) => (
-                        <div className="rounded-2xl border border-white/8 bg-black/15 px-3 py-2" key={`${pool.name}-${key}`}>
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2" key={`${pool.name}-${key}`}>
                           <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{key}</p>
-                          <p className="mt-1 break-all text-sm text-slate-200">{value}</p>
+                          <p className="mt-1 break-all text-sm text-slate-700">{value}</p>
                         </div>
                       ))}
                     </div>
@@ -365,9 +365,9 @@ export function DhcpPage() {
 
                   <div className="mt-4 grid gap-3 lg:grid-cols-2">
                     {pool.leases.map((lease) => (
-                      <article className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3" key={lease.ipAddress}>
-                        <p className="font-medium text-slate-100">{lease.ipAddress}</p>
-                        <p className="mt-1 text-sm text-slate-400">{lease.hostname}</p>
+                      <article className="rounded-2xl border border-slate-200 bg-white px-4 py-3" key={lease.ipAddress}>
+                        <p className="font-medium text-slate-900">{lease.ipAddress}</p>
+                        <p className="mt-1 text-sm text-slate-600">{lease.hostname}</p>
                         <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
                           {lease.clientId} - {lease.state}
                         </p>
@@ -377,7 +377,7 @@ export function DhcpPage() {
                 </section>
               ))
             ) : (
-              <p className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3 text-sm text-slate-400">
+              <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 No DHCP pool is configured yet. Create a pool to start allocating leases.
               </p>
             )}
@@ -421,7 +421,7 @@ export function DhcpPage() {
             <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Preset</span>
               <select
-                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => applyTemplate(event.target.value as PoolTemplateValue)}
                 defaultValue="office"
               >
@@ -433,12 +433,12 @@ export function DhcpPage() {
               </select>
             </label>
 
-            <div className="grid gap-3 rounded-2xl border border-white/8 bg-black/15 p-4">
-              <p className="text-sm font-medium text-slate-100">Addressing</p>
+            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-medium text-slate-900">Addressing</p>
               <label className="grid gap-2">
                 <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Pool name</span>
                 <input
-                  className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                  className="field rounded-2xl px-4 py-3 outline-none"
                   onChange={(event) => {
                     setFormError(null);
                     setForm((current) => ({ ...current, name: event.target.value }));
@@ -449,7 +449,7 @@ export function DhcpPage() {
               <label className="grid gap-2">
                 <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Subnet</span>
                 <input
-                  className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                  className="field rounded-2xl px-4 py-3 outline-none"
                   onChange={(event) => {
                     setFormError(null);
                     setForm((current) => ({ ...current, subnet: event.target.value }));
@@ -462,7 +462,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Range start</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => {
                       setFormError(null);
                       setForm((current) => ({ ...current, rangeStart: event.target.value }));
@@ -473,7 +473,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Range end</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => {
                       setFormError(null);
                       setForm((current) => ({ ...current, rangeEnd: event.target.value }));
@@ -484,13 +484,13 @@ export function DhcpPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 rounded-2xl border border-white/8 bg-black/15 p-4">
-              <p className="text-sm font-medium text-slate-100">Client Network Options</p>
+            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-medium text-slate-900">Client Network Options</p>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Router / gateway</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, router: event.target.value }))}
                     placeholder="10.10.10.1"
                     value={form.router}
@@ -499,7 +499,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Broadcast address</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, broadcastAddress: event.target.value }))}
                     placeholder="10.10.10.255"
                     value={form.broadcastAddress}
@@ -510,7 +510,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Primary DNS</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, dns: event.target.value }))}
                     placeholder="10.10.10.10"
                     value={form.dns}
@@ -519,7 +519,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Secondary DNS</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, dnsSecondary: event.target.value }))}
                     placeholder="10.10.10.11"
                     value={form.dnsSecondary}
@@ -530,7 +530,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Domain name</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, domainName: event.target.value }))}
                     placeholder="endorium.local"
                     value={form.domainName}
@@ -539,7 +539,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Domain search</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, domainSearch: event.target.value }))}
                     placeholder="endorium.local,lab.endorium.local"
                     value={form.domainSearch}
@@ -550,7 +550,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">NTP server</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, ntpServer: event.target.value }))}
                     placeholder="10.10.10.15"
                     value={form.ntpServer}
@@ -559,7 +559,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Interface MTU</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, mtu: event.target.value }))}
                     placeholder="1500"
                     value={form.mtu}
@@ -568,13 +568,13 @@ export function DhcpPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 rounded-2xl border border-white/8 bg-black/15 p-4">
-              <p className="text-sm font-medium text-slate-100">Lease and Boot Options</p>
+            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-medium text-slate-900">Lease and Boot Options</p>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Lease time</span>
                   <select
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, leaseTime: event.target.value }))}
                     value={form.leaseTime}
                   >
@@ -591,7 +591,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Max lease time</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, maxLeaseTime: event.target.value }))}
                     placeholder="604800"
                     value={form.maxLeaseTime}
@@ -602,7 +602,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">TFTP server</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, tftpServer: event.target.value }))}
                     placeholder="10.20.20.5"
                     value={form.tftpServer}
@@ -611,7 +611,7 @@ export function DhcpPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Next server</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, nextServer: event.target.value }))}
                     placeholder="10.20.20.5"
                     value={form.nextServer}
@@ -621,7 +621,7 @@ export function DhcpPage() {
               <label className="grid gap-2">
                 <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Boot file</span>
                 <input
-                  className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                  className="field rounded-2xl px-4 py-3 outline-none"
                   onChange={(event) => setForm((current) => ({ ...current, bootFile: event.target.value }))}
                   placeholder="pxelinux.0"
                   value={form.bootFile}
@@ -629,11 +629,11 @@ export function DhcpPage() {
               </label>
             </div>
 
-            <div className="grid gap-3 rounded-2xl border border-white/8 bg-black/15 p-4">
+            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <p className="text-sm font-medium text-slate-100">Advanced Options</p>
+                <p className="text-sm font-medium text-slate-900">Advanced Options</p>
                 <select
-                  className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-sm outline-none"
+                  className="field rounded-2xl px-4 py-3 text-sm outline-none"
                   defaultValue=""
                   onChange={(event) => {
                     const suggestion = DHCP_OPTION_SUGGESTIONS.find((entry) => entry.key === event.target.value);
@@ -655,19 +655,19 @@ export function DhcpPage() {
               {form.advancedOptions.map((option) => (
                 <div className="grid gap-2 md:grid-cols-[0.9fr_1fr_auto]" key={option.id}>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => updateAdvancedOption(option.id, { key: event.target.value })}
                     placeholder="option-key"
                     value={option.key}
                   />
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => updateAdvancedOption(option.id, { value: event.target.value })}
                     placeholder="value"
                     value={option.value}
                   />
                   <button
-                    className="rounded-2xl border border-rose-300/20 px-4 py-3 text-sm font-medium text-rose-100 transition hover:bg-rose-300/10"
+                    className="rounded-2xl border border-rose-200 px-4 py-3 text-sm font-medium text-rose-700 transition hover:bg-rose-50"
                     onClick={() => {
                       setForm((current) => ({
                         ...current,
@@ -682,7 +682,7 @@ export function DhcpPage() {
               ))}
 
               <button
-                className="rounded-2xl border border-white/10 px-4 py-3 text-sm font-medium text-slate-200 transition hover:bg-white/5"
+                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
                 onClick={() => addAdvancedOption()}
                 type="button"
               >
@@ -690,9 +690,9 @@ export function DhcpPage() {
               </button>
             </div>
 
-            <div className="rounded-2xl border border-white/8 bg-slate-950/70 px-4 py-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Option payload</p>
-              <pre className="mt-2 overflow-x-auto text-sm text-cyan-50">{JSON.stringify(optionPreview, null, 2)}</pre>
+              <pre className="mt-2 overflow-x-auto text-sm text-slate-700">{JSON.stringify(optionPreview, null, 2)}</pre>
             </div>
 
             <div className="flex flex-wrap gap-3">
@@ -701,7 +701,7 @@ export function DhcpPage() {
               </button>
               {editingPoolName ? (
                 <button
-                  className="rounded-2xl border border-white/10 px-4 py-3 font-medium text-slate-200 transition hover:bg-white/5"
+                  className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-600 transition hover:bg-slate-50"
                   onClick={resetForm}
                   type="button"
                 >

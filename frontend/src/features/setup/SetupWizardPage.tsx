@@ -220,7 +220,7 @@ export function SetupWizardPage() {
   };
 
   if (isLoading || !settings.data) {
-    return <div className="text-sm text-slate-400">Loading setup wizard...</div>;
+    return <div className="text-sm text-slate-500">Chargement de l'assistant de démarrage...</div>;
   }
 
   return (
@@ -228,13 +228,13 @@ export function SetupWizardPage() {
       <Panel
         title="Setup Wizard"
         eyebrow="First configuration"
-        actions={<Link className="rounded-full border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5" to="/dashboard">Back to dashboard</Link>}
+        actions={<Link className="rounded-full border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50" to="/dashboard">Retour au tableau de bord</Link>}
       >
         <div className="grid gap-3 md:grid-cols-3">
           {readiness.map((item) => (
-            <div className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3" key={item.label}>
-              <p className="text-sm font-medium text-slate-100">{item.label}</p>
-              <p className={["mt-1 text-xs uppercase tracking-[0.16em]", item.done ? "text-emerald-200" : "text-amber-200"].join(" ")}>
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3" key={item.label}>
+              <p className="text-sm font-medium text-slate-900">{item.label}</p>
+              <p className={["mt-1 text-xs uppercase tracking-[0.16em]", item.done ? "text-emerald-700" : "text-amber-700"].join(" ")}>
                 {item.done ? "Configured" : "Needs setup"}
               </p>
             </div>
@@ -249,63 +249,63 @@ export function SetupWizardPage() {
         error={error}
         actions={
           <>
-            <button className="rounded-2xl border border-white/10 px-4 py-3 font-medium text-slate-200 disabled:opacity-50" disabled={step === 0} onClick={() => setStep((current) => Math.max(0, current - 1))} type="button">Back</button>
+            <button className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-600 disabled:opacity-50" disabled={step === 0} onClick={() => setStep((current) => Math.max(0, current - 1))} type="button">Back</button>
             {step < steps.length - 1 ? (
-              <button className="accent-gradient rounded-2xl px-4 py-3 font-medium text-slate-950" onClick={() => setStep((current) => Math.min(steps.length - 1, current + 1))} type="button">Next</button>
+              <button className="accent-gradient rounded-2xl px-4 py-3 font-medium text-white" onClick={() => setStep((current) => Math.min(steps.length - 1, current + 1))} type="button">Next</button>
             ) : (
-              <button className="accent-gradient rounded-2xl px-4 py-3 font-medium text-slate-950" onClick={() => void applySetup()} type="button">Apply setup</button>
+              <button className="accent-gradient rounded-2xl px-4 py-3 font-medium text-white" onClick={() => void applySetup()} type="button">Apply setup</button>
             )}
           </>
         }
       >
         {step === 0 ? (
           <div className="grid gap-3">
-            <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Business domain</span><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ domain: event.target.value, dnsZone: event.target.value, directoryBaseDn: event.target.value.split(".").filter(Boolean).map((part) => `dc=${part}`).join(","), netbiosName: event.target.value.split(".")[0]?.toUpperCase().slice(0, 15) ?? draft.netbiosName })} value={draft.domain} /></label>
+            <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Business domain</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ domain: event.target.value, dnsZone: event.target.value, directoryBaseDn: event.target.value.split(".").filter(Boolean).map((part) => `dc=${part}`).join(","), netbiosName: event.target.value.split(".")[0]?.toUpperCase().slice(0, 15) ?? draft.netbiosName })} value={draft.domain} /></label>
             <WizardSummary items={[{ label: "Current environment", value: settings.data.environment }, { label: "Default state root", value: settings.data.stateRoot }]} />
           </div>
         ) : null}
         {step === 1 ? (
           <div className="grid gap-3">
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Base DN</span><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ directoryBaseDn: event.target.value })} value={draft.directoryBaseDn} /></label>
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">NetBIOS name</span><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ netbiosName: event.target.value.toUpperCase().slice(0, 15) })} value={draft.netbiosName} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Base DN</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ directoryBaseDn: event.target.value })} value={draft.directoryBaseDn} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">NetBIOS name</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ netbiosName: event.target.value.toUpperCase().slice(0, 15) })} value={draft.netbiosName} /></label>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Admin UID</span><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminUid: event.target.value })} value={draft.adminUid} /></label>
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Temporary password</span><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminPassword: event.target.value })} type="password" value={draft.adminPassword} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Admin UID</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminUid: event.target.value })} value={draft.adminUid} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Temporary password</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminPassword: event.target.value })} type="password" value={draft.adminPassword} /></label>
             </div>
-            <AdvancedSection><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminName: event.target.value })} value={draft.adminName} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminMail: event.target.value })} value={draft.adminMail} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ domainControllerHost: event.target.value })} value={draft.domainControllerHost} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ domainControllerAddress: event.target.value })} value={draft.domainControllerAddress} /></AdvancedSection>
+            <AdvancedSection><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminName: event.target.value })} value={draft.adminName} /><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminMail: event.target.value })} value={draft.adminMail} /><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ domainControllerHost: event.target.value })} value={draft.domainControllerHost} /><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ domainControllerAddress: event.target.value })} value={draft.domainControllerAddress} /></AdvancedSection>
           </div>
         ) : null}
         {step === 2 ? (
           <div className="grid gap-3">
             <div className="grid gap-3 md:grid-cols-3">
-              <input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ dnsZone: event.target.value })} value={draft.dnsZone} />
-              <input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ dnsHost: event.target.value })} value={draft.dnsHost} />
-              <input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ dnsAddress: event.target.value })} value={draft.dnsAddress} />
+              <input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ dnsZone: event.target.value })} value={draft.dnsZone} />
+              <input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ dnsHost: event.target.value })} value={draft.dnsHost} />
+              <input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ dnsAddress: event.target.value })} value={draft.dnsAddress} />
             </div>
-            <AdvancedSection title="DHCP scope"><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ dhcpPool: event.target.value })} value={draft.dhcpPool} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ dhcpSubnet: event.target.value })} value={draft.dhcpSubnet} /><div className="grid gap-3 md:grid-cols-3"><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ dhcpStart: event.target.value })} value={draft.dhcpStart} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ dhcpEnd: event.target.value })} value={draft.dhcpEnd} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ dhcpRouter: event.target.value })} value={draft.dhcpRouter} /></div></AdvancedSection>
+            <AdvancedSection title="DHCP scope"><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ dhcpPool: event.target.value })} value={draft.dhcpPool} /><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ dhcpSubnet: event.target.value })} value={draft.dhcpSubnet} /><div className="grid gap-3 md:grid-cols-3"><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ dhcpStart: event.target.value })} value={draft.dhcpStart} /><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ dhcpEnd: event.target.value })} value={draft.dhcpEnd} /><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ dhcpRouter: event.target.value })} value={draft.dhcpRouter} /></div></AdvancedSection>
           </div>
         ) : null}
         {step === 3 ? (
           <div className="grid gap-3 md:grid-cols-2">
-            <input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ caName: event.target.value })} value={draft.caName} />
-            <input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ caCommonName: event.target.value })} value={draft.caCommonName} />
-            <input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none md:col-span-2" onChange={(event) => updateDraft({ certCommonName: event.target.value })} value={draft.certCommonName} />
+            <input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ caName: event.target.value })} value={draft.caName} />
+            <input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ caCommonName: event.target.value })} value={draft.caCommonName} />
+            <input className="field rounded-2xl px-4 py-3 outline-none md:col-span-2" onChange={(event) => updateDraft({ certCommonName: event.target.value })} value={draft.certCommonName} />
           </div>
         ) : null}
         {step === 4 ? (
           <div className="grid gap-3 md:grid-cols-2">
-            <input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ repoDistribution: event.target.value })} value={draft.repoDistribution} />
-            <input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ repoComponent: event.target.value })} value={draft.repoComponent} />
-            <input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ packageName: event.target.value })} value={draft.packageName} />
-            <input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => updateDraft({ packageVersion: event.target.value })} value={draft.packageVersion} />
+            <input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ repoDistribution: event.target.value })} value={draft.repoDistribution} />
+            <input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ repoComponent: event.target.value })} value={draft.repoComponent} />
+            <input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ packageName: event.target.value })} value={draft.packageName} />
+            <input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ packageVersion: event.target.value })} value={draft.packageVersion} />
           </div>
         ) : null}
         {step === 5 ? (
           <div className="grid gap-4">
             <WizardSummary items={[{ label: "LDAP", value: `${draft.adminUid} in ou=${draft.directoryOu}` }, { label: "DNS/DHCP", value: `${draft.dnsHost}.${draft.dnsZone} -> ${draft.dnsAddress}, pool ${draft.dhcpPool}` }, { label: "PKI", value: `${draft.caName}, certificate ${draft.certCommonName}` }, { label: "APT", value: `${draft.repoDistribution}/${draft.repoComponent}, ${draft.packageName} ${draft.packageVersion}` }]} />
-            {result.length ? <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">{result.map((line) => <p key={line}>{line}</p>)}</div> : null}
+            {result.length ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{result.map((line) => <p key={line}>{line}</p>)}</div> : null}
           </div>
         ) : null}
       </Wizard>

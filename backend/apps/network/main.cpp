@@ -14,13 +14,13 @@ namespace {
 nexus::core::DnsZone fallback_ad_zone(const nexus::core::Config& config) {
     return nexus::protocol::make_active_directory_dns_zone({
         config.domain,
-        config.directory.site_name,
-        config.directory.domain_controller_host,
-        config.directory.domain_controller_address,
+        "default-site",
+        config.ldap.host,
+        config.ldap.host,
         static_cast<std::uint16_t>(config.ldap.port),
         static_cast<std::uint16_t>(config.kerberos.port),
-        static_cast<std::uint16_t>(config.kpasswd.port),
-        static_cast<std::uint16_t>(config.global_catalog.port),
+        static_cast<std::uint16_t>(config.kerberos.port),
+        static_cast<std::uint16_t>(config.ldap.port),
     });
 }
 

@@ -4,7 +4,6 @@
 #include "nexus/protocol/dns.hpp"
 #include "nexus/protocol/ldap.hpp"
 #include "nexus/protocol/repo.hpp"
-#include "nexus/security/ad_crypto.hpp"
 
 #include <openssl/rand.h>
 #include <openssl/sha.h>
@@ -13,14 +12,12 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdint>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <numeric>
-#include <sstream>
-#include <stdexcept>
 #include <system_error>
+#include <sstream>
 
 namespace nexus::api {
 
@@ -227,52 +224,6 @@ std::string json_string_object(const std::map<std::string, std::string>& values)
     return Json::writeString(builder, object);
 }
 
-std::string uppercase_ascii(std::string value) {
-    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-        return static_cast<char>(std::toupper(ch));
-    });
-    return value;
-}
-
-std::string base_dn_from_dns_name(const std::string& dns_name) {
-    std::stringstream stream(dns_name);
-    std::string label;
-    std::string base_dn;
-    while (std::getline(stream, label, '.')) {
-        if (label.empty()) {
-            return "";
-        }
-        if (!base_dn.empty()) {
-            base_dn += ",";
-        }
-        base_dn += "dc=" + label;
-    }
-    return base_dn;
-}
-
-bool is_valid_netbios_name(const std::string& value) {
-    if (value.empty() || value.size() > 15) {
-        return false;
-    }
-    return std::all_of(value.begin(), value.end(), [](unsigned char ch) {
-        return std::isalnum(ch) || ch == '-';
-    });
-}
-
-std::string random_domain_sid() {
-    unsigned char bytes[12];
-    RAND_bytes(bytes, sizeof(bytes));
-    const auto part = [&](int offset) {
-        std::uint32_t value = 0;
-        value |= static_cast<std::uint32_t>(bytes[offset]) << 24;
-        value |= static_cast<std::uint32_t>(bytes[offset + 1]) << 16;
-        value |= static_cast<std::uint32_t>(bytes[offset + 2]) << 8;
-        value |= static_cast<std::uint32_t>(bytes[offset + 3]);
-        return value % 900000000U + 100000000U;
-    };
-    return "S-1-5-21-" + std::to_string(part(0)) + "-" + std::to_string(part(4)) + "-" + std::to_string(part(8));
-}
-
 std::string sha256_hex(const std::string& payload) {
     unsigned char digest[SHA256_DIGEST_LENGTH];
     SHA256(reinterpret_cast<const unsigned char*>(payload.data()), payload.size(), digest);
@@ -282,82 +233,6 @@ std::string sha256_hex(const std::string& payload) {
         output << std::setw(2) << static_cast<int>(byte);
     }
     return output.str();
-}
-
-std::string bytes_to_hex(const std::vector<unsigned char>& bytes) {
-    std::ostringstream output;
-    output << std::hex << std::setfill('0');
-    for (unsigned char byte : bytes) {
-        output << std::setw(2) << static_cast<int>(byte);
-    }
-    return output.str();
-}
-
-std::vector<unsigned char> random_bytes(std::size_t size) {
-    std::vector<unsigned char> bytes(size);
-    if (RAND_bytes(bytes.data(), static_cast<int>(bytes.size())) != 1) {
-        throw std::runtime_error("RAND_bytes failed");
-    }
-    return bytes;
-}
-
-std::string random_ad_secret() {
-    return bytes_to_hex(random_bytes(32));
-}
-
-void persist_active_directory_domain_to_database(
-    const nexus::core::ActiveDirectoryDomain& domain,
-    const std::string& domain_controller_host,
-    const std::string& domain_controller_address,
-    const std::string& site_name,
-    const std::string& database_url) {
-    PGconn* conn = connect_database(database_url);
-    if (conn == nullptr) {
-        return;
-    }
-    const auto dc_address_sql = domain_controller_address.empty() ? "null" : sql_literal(conn, domain_controller_address);
-    const std::string sql =
-        "INSERT INTO ad_domains(dns_name,netbios_name,realm,base_dn,domain_sid,site_name,dc_host,dc_address,created_at) VALUES (" +
-        sql_literal(conn, domain.dns_name) + "," +
-        sql_literal(conn, domain.netbios_name) + "," +
-        sql_literal(conn, domain.realm) + "," +
-        sql_literal(conn, domain.base_dn) + "," +
-        sql_literal(conn, domain.domain_sid) + "," +
-        sql_literal(conn, site_name) + "," +
-        sql_literal(conn, domain_controller_host) + "," +
-        dc_address_sql + ",now()) "
-        "ON CONFLICT (dns_name) DO UPDATE SET netbios_name=excluded.netbios_name, realm=excluded.realm, "
-        "base_dn=excluded.base_dn, domain_sid=excluded.domain_sid, site_name=excluded.site_name, "
-        "dc_host=excluded.dc_host, dc_address=excluded.dc_address;";
-    PGresult* result = PQexec(conn, sql.c_str());
-    if (PQresultStatus(result) != PGRES_COMMAND_OK) {
-        std::cerr << "[nexus-api] failed to persist active directory domain: " << PQresultErrorMessage(result) << '\n';
-    }
-    PQclear(result);
-    PQfinish(conn);
-}
-
-std::optional<nexus::core::ActiveDirectoryDomain> load_active_directory_domain_from_database(const std::string& database_url) {
-    PGconn* conn = connect_database(database_url);
-    if (conn == nullptr) {
-        return std::nullopt;
-    }
-    PGresult* result = PQexec(conn, "SELECT dns_name,netbios_name,realm,base_dn,domain_sid,created_at::text FROM ad_domains ORDER BY created_at DESC LIMIT 1;");
-    if (PQresultStatus(result) != PGRES_TUPLES_OK || PQntuples(result) == 0) {
-        PQclear(result);
-        PQfinish(conn);
-        return std::nullopt;
-    }
-    nexus::core::ActiveDirectoryDomain domain{
-        PQgetvalue(result, 0, 0),
-        PQgetvalue(result, 0, 1),
-        PQgetvalue(result, 0, 2),
-        PQgetvalue(result, 0, 3),
-        PQgetvalue(result, 0, 4),
-        PQgetvalue(result, 0, 5)};
-    PQclear(result);
-    PQfinish(conn);
-    return domain;
 }
 
 void persist_directory_object_to_database(const nexus::core::DirectoryObject& object, const std::string& database_url) {
@@ -394,253 +269,6 @@ void delete_directory_object_from_database(const std::string& dn, const std::str
     }
     PQclear(result);
     PQfinish(conn);
-}
-
-void delete_ad_account_secret_from_database(const std::string& dn, const std::string& database_url) {
-    PGconn* conn = connect_database(database_url);
-    if (conn == nullptr) {
-        return;
-    }
-    const std::string sql = "DELETE FROM ad_account_secrets WHERE object_dn = " + sql_literal(conn, dn) + ";";
-    PGresult* result = PQexec(conn, sql.c_str());
-    PQclear(result);
-    PQfinish(conn);
-}
-
-void rename_ad_account_secret_in_database(const std::string& old_dn, const std::string& new_dn, const std::string& database_url) {
-    PGconn* conn = connect_database(database_url);
-    if (conn == nullptr) {
-        return;
-    }
-    const std::string sql =
-        "UPDATE ad_account_secrets SET object_dn = " + sql_literal(conn, new_dn) +
-        ", updated_at = now() WHERE object_dn = " + sql_literal(conn, old_dn) + ";";
-    PGresult* result = PQexec(conn, sql.c_str());
-    PQclear(result);
-    PQfinish(conn);
-}
-
-void persist_ad_account_secret_to_database(
-    const std::string& dn,
-    const std::string& password,
-    const std::string& realm,
-    const std::string& principal,
-    const nexus::core::Config& config) {
-    if (password.empty()) {
-        return;
-    }
-
-    Json::Value keys(Json::objectValue);
-    std::string wrapped_nt_hash;
-    try {
-        const auto material = nexus::security::derive_ad_credentials(password, realm, principal);
-        wrapped_nt_hash = nexus::security::seal_ad_secret(config.directory.key_encryption_key_file, material.nt_hash_hex);
-        for (const auto& key : material.kerberos_keys) {
-            Json::Value node(Json::objectValue);
-            node["salt"] = key.salt;
-            node["wrapped"] = nexus::security::seal_ad_secret(config.directory.key_encryption_key_file, key.key_hex);
-            keys[key.enctype] = node;
-        }
-    } catch (const std::exception& error) {
-        std::cerr << "[nexus-api] failed to derive or wrap AD account secret: " << error.what() << '\n';
-        return;
-    }
-
-    PGconn* conn = connect_database(config.database_url);
-    if (conn == nullptr) {
-        return;
-    }
-
-    Json::StreamWriterBuilder builder;
-    builder["indentation"] = "";
-    const auto keys_json = Json::writeString(builder, keys);
-
-    const std::string sql =
-        "INSERT INTO ad_account_secrets(object_dn,encryption_version,wrapped_nt_hash,wrapped_kerberos_keys,updated_at) VALUES (" +
-        sql_literal(conn, dn) + ",1," +
-        sql_literal(conn, wrapped_nt_hash) + "," +
-        sql_literal(conn, keys_json) + "::jsonb,now()) "
-        "ON CONFLICT (object_dn) DO UPDATE SET wrapped_nt_hash=excluded.wrapped_nt_hash, "
-        "wrapped_kerberos_keys=excluded.wrapped_kerberos_keys, encryption_version=excluded.encryption_version, updated_at=now();";
-    PGresult* result = PQexec(conn, sql.c_str());
-    if (PQresultStatus(result) != PGRES_COMMAND_OK) {
-        std::cerr << "[nexus-api] failed to persist AD account secret: " << PQresultErrorMessage(result) << '\n';
-    }
-    PQclear(result);
-    PQfinish(conn);
-}
-
-std::vector<std::string> json_array_from_string(const std::string& payload) {
-    Json::CharReaderBuilder builder;
-    Json::Value value;
-    std::string errors;
-    std::istringstream input(payload);
-    std::vector<std::string> result;
-    if (!Json::parseFromStream(builder, input, &value, &errors) || !value.isArray()) {
-        return result;
-    }
-    for (const auto& entry : value) {
-        result.push_back(entry.asString());
-    }
-    return result;
-}
-
-std::map<std::string, std::string> json_object_from_string(const std::string& payload) {
-    Json::CharReaderBuilder builder;
-    Json::Value value;
-    std::string errors;
-    std::istringstream input(payload);
-    std::map<std::string, std::string> result;
-    if (!Json::parseFromStream(builder, input, &value, &errors) || !value.isObject()) {
-        return result;
-    }
-    for (const auto& key : value.getMemberNames()) {
-        result[key] = value[key].asString();
-    }
-    return result;
-}
-
-std::vector<nexus::core::DirectoryObject> load_directory_objects_from_database(const std::string& database_url) {
-    PGconn* conn = connect_database(database_url);
-    if (conn == nullptr) {
-        return {};
-    }
-    PGresult* result = PQexec(conn, "SELECT dn,parent_dn,kind,object_classes::text,attributes::text FROM identity_objects ORDER BY dn;");
-    std::vector<nexus::core::DirectoryObject> objects;
-    if (PQresultStatus(result) == PGRES_TUPLES_OK) {
-        for (int index = 0; index < PQntuples(result); ++index) {
-            objects.push_back({
-                PQgetvalue(result, index, 0),
-                PQgetvalue(result, index, 1),
-                PQgetvalue(result, index, 2),
-                json_array_from_string(PQgetvalue(result, index, 3)),
-                json_object_from_string(PQgetvalue(result, index, 4)),
-            });
-        }
-    }
-    PQclear(result);
-    PQfinish(conn);
-    return objects;
-}
-
-void persist_dns_zone_to_database(const nexus::core::DnsZone& zone, const std::string& database_url) {
-    PGconn* conn = connect_database(database_url);
-    if (conn == nullptr) {
-        return;
-    }
-
-    PGresult* begin = PQexec(conn, "begin");
-    if (PQresultStatus(begin) != PGRES_COMMAND_OK) {
-        PQclear(begin);
-        PQfinish(conn);
-        return;
-    }
-    PQclear(begin);
-
-    bool ok = true;
-    const std::string upsert_zone =
-        "INSERT INTO dns_zones(name,serial,updated_at) VALUES (" +
-        sql_literal(conn, zone.name) + "," + std::to_string(zone.serial) + ",now()) "
-        "ON CONFLICT (name) DO UPDATE SET serial=excluded.serial, updated_at=now();";
-    PGresult* zone_result = PQexec(conn, upsert_zone.c_str());
-    ok = PQresultStatus(zone_result) == PGRES_COMMAND_OK;
-    PQclear(zone_result);
-
-    if (ok) {
-        const std::string delete_records = "DELETE FROM dns_records WHERE zone_name = " + sql_literal(conn, zone.name) + ";";
-        PGresult* delete_result = PQexec(conn, delete_records.c_str());
-        ok = PQresultStatus(delete_result) == PGRES_COMMAND_OK;
-        PQclear(delete_result);
-    }
-
-    for (const auto& record : zone.records) {
-        if (!ok) {
-            break;
-        }
-        const std::string insert_record =
-            "INSERT INTO dns_records(zone_name,name,type,value,ttl,priority,dns_class,weight,port,flags) VALUES (" +
-            sql_literal(conn, zone.name) + "," +
-            sql_literal(conn, record.name) + "," +
-            sql_literal(conn, record.type) + "," +
-            sql_literal(conn, record.value) + "," +
-            std::to_string(record.ttl) + "," +
-            std::to_string(record.priority) + "," +
-            sql_literal(conn, record.dns_class) + "," +
-            std::to_string(record.weight) + "," +
-            std::to_string(record.port) + "," +
-            sql_literal(conn, record.flags) + ");";
-        PGresult* record_result = PQexec(conn, insert_record.c_str());
-        ok = PQresultStatus(record_result) == PGRES_COMMAND_OK;
-        if (!ok) {
-            std::cerr << "[nexus-api] failed to persist dns record: " << PQresultErrorMessage(record_result) << '\n';
-        }
-        PQclear(record_result);
-    }
-
-    PGresult* end = PQexec(conn, ok ? "commit" : "rollback");
-    PQclear(end);
-    PQfinish(conn);
-}
-
-void delete_dns_zone_from_database(const std::string& zone_name, const std::string& database_url) {
-    PGconn* conn = connect_database(database_url);
-    if (conn == nullptr) {
-        return;
-    }
-    const std::string sql = "DELETE FROM dns_zones WHERE name = " + sql_literal(conn, zone_name) + ";";
-    PGresult* result = PQexec(conn, sql.c_str());
-    PQclear(result);
-    PQfinish(conn);
-}
-
-std::vector<nexus::core::DnsZone> load_dns_zones_from_database(const std::string& database_url) {
-    PGconn* conn = connect_database(database_url);
-    if (conn == nullptr) {
-        return {};
-    }
-
-    PGresult* zones_result = PQexec(conn, "SELECT name,serial FROM dns_zones ORDER BY name;");
-    std::vector<nexus::core::DnsZone> zones;
-    if (PQresultStatus(zones_result) == PGRES_TUPLES_OK) {
-        for (int index = 0; index < PQntuples(zones_result); ++index) {
-            zones.push_back({
-                PQgetvalue(zones_result, index, 0),
-                static_cast<std::uint64_t>(std::stoull(PQgetvalue(zones_result, index, 1))),
-                {},
-            });
-        }
-    }
-    PQclear(zones_result);
-
-    PGresult* records_result = PQexec(
-        conn,
-        "SELECT zone_name,name,type,value,ttl,priority,coalesce(dns_class,'IN'),coalesce(weight,0),coalesce(port,0),coalesce(flags,'') "
-        "FROM dns_records ORDER BY zone_name,id;");
-    if (PQresultStatus(records_result) == PGRES_TUPLES_OK) {
-        for (int index = 0; index < PQntuples(records_result); ++index) {
-            const std::string zone_name = PQgetvalue(records_result, index, 0);
-            auto zone = std::find_if(zones.begin(), zones.end(), [&](const auto& candidate) {
-                return candidate.name == zone_name;
-            });
-            if (zone == zones.end()) {
-                continue;
-            }
-            zone->records.push_back({
-                PQgetvalue(records_result, index, 1),
-                PQgetvalue(records_result, index, 2),
-                PQgetvalue(records_result, index, 3),
-                PQgetvalue(records_result, index, 6),
-                static_cast<std::uint32_t>(std::stoul(PQgetvalue(records_result, index, 4))),
-                static_cast<std::uint16_t>(std::stoul(PQgetvalue(records_result, index, 5))),
-                static_cast<std::uint16_t>(std::stoul(PQgetvalue(records_result, index, 7))),
-                static_cast<std::uint16_t>(std::stoul(PQgetvalue(records_result, index, 8))),
-                PQgetvalue(records_result, index, 9),
-            });
-        }
-    }
-    PQclear(records_result);
-    PQfinish(conn);
-    return zones;
 }
 
 void persist_pki_authority_to_database(const nexus::core::PkiAuthority& authority, const std::string& database_url) {
@@ -899,21 +527,12 @@ Json::Value config_to_json_value(const nexus::core::Config& config) {
     node["ports"]["ldap"] = config.ldap.port;
     node["ports"]["ldaps"] = config.ldaps.port;
     node["ports"]["kerberos"] = config.kerberos.port;
-    node["ports"]["kpasswd"] = config.kpasswd.port;
-    node["ports"]["globalCatalog"] = config.global_catalog.port;
-    node["ports"]["rpc"] = config.rpc_endpoint_mapper.port;
-    node["ports"]["smb"] = config.smb.port;
     node["ports"]["dnsTcp"] = config.dns_tcp.port;
     node["ports"]["dnsUdp"] = config.dns_udp.port;
     node["ports"]["dhcp"] = config.dhcp.port;
     node["directory"]["baseDn"] = config.directory.base_dn;
     node["directory"]["organization"] = config.directory.organization;
     node["directory"]["realm"] = config.directory.realm;
-    node["directory"]["adPortProfile"] = config.directory.ad_port_profile;
-    node["directory"]["siteName"] = config.directory.site_name;
-    node["directory"]["domainControllerHost"] = config.directory.domain_controller_host;
-    node["directory"]["domainControllerAddress"] = config.directory.domain_controller_address;
-    node["directory"]["keyEncryptionKeyFile"] = config.directory.key_encryption_key_file;
     node["dns"]["primaryNs"] = config.dns.primary_ns;
     node["dns"]["adminMailbox"] = config.dns.admin_mailbox;
     node["dns"]["defaultTtl"] = Json::UInt(config.dns.default_ttl);
@@ -961,10 +580,6 @@ nexus::core::Config config_from_json_value(const nexus::core::Config& current, c
     updated.ldap.port = read_port("ldapPort", current.ldap.port);
     updated.ldaps.port = read_port("ldapsPort", current.ldaps.port);
     updated.kerberos.port = read_port("kerberosPort", current.kerberos.port);
-    updated.kpasswd.port = read_port("kpasswdPort", current.kpasswd.port);
-    updated.global_catalog.port = read_port("globalCatalogPort", current.global_catalog.port);
-    updated.rpc_endpoint_mapper.port = read_port("rpcPort", current.rpc_endpoint_mapper.port);
-    updated.smb.port = read_port("smbPort", current.smb.port);
     updated.dns_tcp.port = read_port("dnsTcpPort", current.dns_tcp.port);
     updated.dns_udp.port = read_port("dnsUdpPort", current.dns_udp.port);
     updated.dhcp.port = read_port("dhcpPort", current.dhcp.port);
@@ -974,10 +589,6 @@ nexus::core::Config config_from_json_value(const nexus::core::Config& current, c
         if (ports.isMember("ldap")) updated.ldap.port = ports["ldap"].asInt();
         if (ports.isMember("ldaps")) updated.ldaps.port = ports["ldaps"].asInt();
         if (ports.isMember("kerberos")) updated.kerberos.port = ports["kerberos"].asInt();
-        if (ports.isMember("kpasswd")) updated.kpasswd.port = ports["kpasswd"].asInt();
-        if (ports.isMember("globalCatalog")) updated.global_catalog.port = ports["globalCatalog"].asInt();
-        if (ports.isMember("rpc")) updated.rpc_endpoint_mapper.port = ports["rpc"].asInt();
-        if (ports.isMember("smb")) updated.smb.port = ports["smb"].asInt();
         if (ports.isMember("dnsTcp")) updated.dns_tcp.port = ports["dnsTcp"].asInt();
         if (ports.isMember("dnsUdp")) updated.dns_udp.port = ports["dnsUdp"].asInt();
         if (ports.isMember("dhcp")) updated.dhcp.port = ports["dhcp"].asInt();
@@ -987,11 +598,6 @@ nexus::core::Config config_from_json_value(const nexus::core::Config& current, c
         updated.directory.base_dn = directory.isMember("baseDn") ? directory["baseDn"].asString() : current.directory.base_dn;
         updated.directory.organization = directory.isMember("organization") ? directory["organization"].asString() : current.directory.organization;
         updated.directory.realm = directory.isMember("realm") ? directory["realm"].asString() : current.directory.realm;
-        updated.directory.ad_port_profile = directory.isMember("adPortProfile") ? directory["adPortProfile"].asString() : current.directory.ad_port_profile;
-        updated.directory.site_name = directory.isMember("siteName") ? directory["siteName"].asString() : current.directory.site_name;
-        updated.directory.domain_controller_host = directory.isMember("domainControllerHost") ? directory["domainControllerHost"].asString() : current.directory.domain_controller_host;
-        updated.directory.domain_controller_address = directory.isMember("domainControllerAddress") ? directory["domainControllerAddress"].asString() : current.directory.domain_controller_address;
-        updated.directory.key_encryption_key_file = directory.isMember("keyEncryptionKeyFile") ? directory["keyEncryptionKeyFile"].asString() : current.directory.key_encryption_key_file;
     }
     if (body.isMember("dns") && body["dns"].isObject()) {
         const auto& dns = body["dns"];
@@ -1098,154 +704,6 @@ bool PlatformState::update_feature_flags(const std::map<std::string, bool>& feat
     return true;
 }
 
-bool PlatformState::create_active_directory_domain(
-    const nexus::core::ActiveDirectoryDomain& requested_domain,
-    const std::string& admin_sam_account,
-    const std::string& admin_display_name,
-    const std::string& admin_password,
-    const std::string& domain_controller_host,
-    const std::string& domain_controller_address,
-    const std::string& actor) {
-    if (!is_valid_zone_name(requested_domain.dns_name) ||
-        !is_valid_netbios_name(requested_domain.netbios_name) ||
-        admin_sam_account.empty() ||
-        admin_password.empty() ||
-        domain_controller_host.empty() ||
-        domain_controller_address.empty()) {
-        return false;
-    }
-
-    const auto base_dn = requested_domain.base_dn.empty() ? base_dn_from_dns_name(requested_domain.dns_name) : requested_domain.base_dn;
-    if (!nexus::protocol::is_valid_dn(base_dn)) {
-        return false;
-    }
-
-    nexus::core::ActiveDirectoryDomain domain{
-        requested_domain.dns_name,
-        uppercase_ascii(requested_domain.netbios_name),
-        requested_domain.realm.empty() ? uppercase_ascii(requested_domain.dns_name) : uppercase_ascii(requested_domain.realm),
-        base_dn,
-        requested_domain.domain_sid.empty() ? random_domain_sid() : requested_domain.domain_sid,
-        nexus::core::utc_timestamp()};
-
-    {
-        std::scoped_lock lock(mutex_);
-        if (ad_domain_.has_value()) {
-            return false;
-        }
-    }
-
-    const auto sid = [&](int rid) {
-        return domain.domain_sid + "-" + std::to_string(rid);
-    };
-    const auto krbtgt_password = random_ad_secret();
-    const auto dc_machine_password = random_ad_secret();
-    const auto krbtgt_dn = "cn=krbtgt,ou=Users," + domain.base_dn;
-    const auto dc_dn = "cn=" + domain_controller_host + ",ou=Domain Controllers," + domain.base_dn;
-
-    std::vector<nexus::core::DirectoryObject> objects{
-        {domain.base_dn, "", "domainDNS", {"top", "domain", "domainDNS"}, {{"dc", domain.dns_name.substr(0, domain.dns_name.find('.'))}, {"objectSid", domain.domain_sid}, {"nETBIOSName", domain.netbios_name}}},
-        {"cn=Builtin," + domain.base_dn, domain.base_dn, "builtinDomain", {"top", "builtinDomain"}, {{"cn", "Builtin"}, {"objectSid", "S-1-5-32"}}},
-        {"ou=Users," + domain.base_dn, domain.base_dn, "organizationalUnit", {"top", "organizationalUnit"}, {{"ou", "Users"}, {"description", "Default user container"}}},
-        {"ou=Groups," + domain.base_dn, domain.base_dn, "organizationalUnit", {"top", "organizationalUnit"}, {{"ou", "Groups"}, {"description", "Default group container"}}},
-        {"ou=Domain Controllers," + domain.base_dn, domain.base_dn, "organizationalUnit", {"top", "organizationalUnit"}, {{"ou", "Domain Controllers"}, {"description", "Domain controller container"}}},
-        {"cn=Computers," + domain.base_dn, domain.base_dn, "container", {"top", "container"}, {{"cn", "Computers"}, {"description", "Default computer account container"}}},
-        {"cn=Domain Users,ou=Groups," + domain.base_dn, "ou=Groups," + domain.base_dn, "group", {"top", "group"}, {{"cn", "Domain Users"}, {"sAMAccountName", "Domain Users"}, {"groupType", "-2147483646"}, {"objectSid", sid(513)}}},
-        {"cn=Domain Admins,ou=Groups," + domain.base_dn, "ou=Groups," + domain.base_dn, "group", {"top", "group"}, {{"cn", "Domain Admins"}, {"sAMAccountName", "Domain Admins"}, {"groupType", "-2147483646"}, {"objectSid", sid(512)}}},
-        {"cn=Administrators,cn=Builtin," + domain.base_dn, "cn=Builtin," + domain.base_dn, "group", {"top", "group"}, {{"cn", "Administrators"}, {"sAMAccountName", "Administrators"}, {"groupType", "-2147483643"}, {"objectSid", "S-1-5-32-544"}}},
-        {"cn=Guest,ou=Users," + domain.base_dn, "ou=Users," + domain.base_dn, "user", {"top", "person", "organizationalPerson", "user"}, {{"cn", "Guest"}, {"sAMAccountName", "Guest"}, {"userAccountControl", "66082"}, {"objectSid", sid(501)}}},
-        {krbtgt_dn, "ou=Users," + domain.base_dn, "user", {"top", "person", "organizationalPerson", "user"}, {{"cn", "krbtgt"}, {"sAMAccountName", "krbtgt"}, {"userAccountControl", "514"}, {"servicePrincipalName", "krbtgt/" + domain.realm}, {"objectSid", sid(502)}, {"adSecretState", "wrapped"}}},
-        {dc_dn, "ou=Domain Controllers," + domain.base_dn, "computer", {"top", "person", "organizationalPerson", "user", "computer"}, {{"cn", domain_controller_host}, {"sAMAccountName", uppercase_ascii(domain_controller_host) + "$"}, {"dNSHostName", domain_controller_host + "." + domain.dns_name}, {"userAccountControl", "532480"}, {"servicePrincipalName", "HOST/" + domain_controller_host + "." + domain.dns_name + ";LDAP/" + domain_controller_host + "." + domain.dns_name + ";GC/" + domain_controller_host + "." + domain.dns_name + ";CIFS/" + domain_controller_host + "." + domain.dns_name}, {"objectSid", sid(1000)}, {"adSecretState", "wrapped"}}},
-    };
-    for (auto& object : objects) {
-        if (object.dn == krbtgt_dn) {
-            object.attributes["userPasswordHash"] = password_hasher_.hash_password(krbtgt_password);
-        }
-        if (object.dn == dc_dn) {
-            object.attributes["userPasswordHash"] = password_hasher_.hash_password(dc_machine_password);
-        }
-    }
-
-    const auto admin_cn = admin_display_name.empty() ? admin_sam_account : admin_display_name;
-    const auto admin_dn = "cn=" + admin_cn + ",ou=Users," + domain.base_dn;
-    nexus::core::DirectoryObject administrator{
-        admin_dn,
-        "ou=Users," + domain.base_dn,
-        "user",
-        {"top", "person", "organizationalPerson", "user"},
-        {
-            {"cn", admin_cn},
-            {"displayName", admin_cn},
-            {"sAMAccountName", admin_sam_account},
-            {"userPrincipalName", admin_sam_account + "@" + domain.dns_name},
-            {"userAccountControl", "512"},
-            {"objectSid", sid(500)},
-            {"adSecretState", "wrapped"},
-            {"memberOf", "cn=Domain Admins,ou=Groups," + domain.base_dn},
-        }};
-    administrator.attributes["userPasswordHash"] = password_hasher_.hash_password(admin_password);
-    objects.push_back(std::move(administrator));
-
-    persist_active_directory_domain_to_database(
-        domain,
-        domain_controller_host,
-        domain_controller_address,
-        config_.directory.site_name,
-        config_.database_url);
-    for (const auto& object : objects) {
-        persist_directory_object_to_database(object, config_.database_url);
-    }
-    persist_ad_account_secret_to_database(admin_dn, admin_password, domain.realm, admin_sam_account, config_);
-    persist_ad_account_secret_to_database(krbtgt_dn, krbtgt_password, domain.realm, "krbtgt", config_);
-    persist_ad_account_secret_to_database(dc_dn, dc_machine_password, domain.realm, uppercase_ascii(domain_controller_host) + "$", config_);
-
-    std::scoped_lock lock(mutex_);
-    ad_domain_ = domain;
-    for (auto& object : objects) {
-        const auto existing = std::find_if(directory_.begin(), directory_.end(), [&](const auto& current) {
-            return current.dn == object.dn;
-        });
-        if (existing == directory_.end()) {
-            directory_.push_back(std::move(object));
-        }
-    }
-
-    auto zone = std::find_if(zones_.begin(), zones_.end(), [&](const auto& current) {
-        return current.name == domain.dns_name;
-    });
-    if (zone == zones_.end()) {
-        zones_.push_back({domain.dns_name, default_zone_serial(), {}});
-        zone = std::prev(zones_.end());
-    }
-
-    const auto ad_zone = nexus::protocol::make_active_directory_dns_zone({
-        domain.dns_name,
-        config_.directory.site_name,
-        domain_controller_host,
-        domain_controller_address,
-        static_cast<std::uint16_t>(config_.ldap.port),
-        static_cast<std::uint16_t>(config_.kerberos.port),
-        static_cast<std::uint16_t>(config_.kpasswd.port),
-        static_cast<std::uint16_t>(config_.global_catalog.port),
-    });
-    for (const auto& record : ad_zone.records) {
-        const auto duplicate = std::find_if(zone->records.begin(), zone->records.end(), [&](const auto& current) {
-            return current.name == record.name && current.type == record.type && current.value == record.value && current.port == record.port;
-        });
-        if (duplicate == zone->records.end()) {
-            zone->records.push_back(record);
-        }
-    }
-    zone->serial += 1;
-    persist_dns_zone_to_database(*zone, config_.database_url);
-
-    jobs_.enqueue("directory", "Create Windows domain " + domain.dns_name);
-    jobs_.enqueue("dns", "Publish Active Directory SRV records for " + domain.dns_name);
-    audit_events_.push_back({nexus::core::utc_timestamp(), actor, "ad", "domain.created", domain.dns_name + " / " + domain.netbios_name});
-    revision_ += 1;
-    return true;
-}
-
 nexus::core::DashboardSnapshot PlatformState::dashboard() const {
     std::scoped_lock lock(mutex_);
     nexus::core::DashboardSnapshot snapshot;
@@ -1276,73 +734,6 @@ std::vector<nexus::core::ServiceStatus> PlatformState::services() const {
     return services_;
 }
 
-std::optional<nexus::core::ActiveDirectoryDomain> PlatformState::active_directory_domain() const {
-    std::scoped_lock lock(mutex_);
-    return ad_domain_;
-}
-
-std::vector<nexus::core::ActiveDirectoryReadinessItem> PlatformState::active_directory_readiness() const {
-    std::scoped_lock lock(mutex_);
-    const bool has_domain = ad_domain_.has_value();
-    const bool has_dns_zone = has_domain && std::any_of(zones_.begin(), zones_.end(), [&](const auto& zone) {
-        return zone.name == ad_domain_->dns_name;
-    });
-    const bool has_dns_locator = has_domain && std::any_of(zones_.begin(), zones_.end(), [&](const auto& zone) {
-        return zone.name == ad_domain_->dns_name && std::any_of(zone.records.begin(), zone.records.end(), [](const auto& record) {
-            return record.type == "SRV" && (record.name == "_ldap._tcp" || record.name == "_ldap._tcp.dc._msdcs");
-        });
-    });
-    const bool has_admin_user = has_domain && std::any_of(directory_.begin(), directory_.end(), [&](const auto& object) {
-        const auto membership = object.attributes.find("memberOf");
-        return object.kind == "user" && membership != object.attributes.end() && membership->second == "cn=Domain Admins,ou=Groups," + ad_domain_->base_dn;
-    });
-    const bool has_machine_container = has_domain && std::any_of(directory_.begin(), directory_.end(), [&](const auto& object) {
-        return object.dn == "cn=Computers," + ad_domain_->base_dn;
-    });
-
-    return {
-        {"domain", "Windows domain model", has_domain, has_domain ? ad_domain_->dns_name + " / " + ad_domain_->netbios_name : "Create the Windows domain first"},
-        {"dns", "AD DNS zone", has_dns_zone, has_dns_zone ? "DNS zone exists for the domain" : "The domain DNS zone is missing"},
-        {"dns-locator", "AD DNS locator records", has_dns_locator, has_dns_locator ? "LDAP/Kerberos SRV locator records are published" : "Publish _ldap and _kerberos SRV records"},
-        {"administrator", "Domain administrator", has_admin_user, has_admin_user ? "Administrator account exists" : "Create the initial Administrator user"},
-        {"ad-secrets", "AD account secrets", has_admin_user, has_admin_user ? "Password-bearing accounts are prepared for wrapped NT/Kerberos keys" : "Create an account password before AD keys can be derived"},
-        {"computers", "Computer account container", has_machine_container, has_machine_container ? "CN=Computers container exists" : "Create the default computer container"},
-        {"ldap-rootdse", "LDAP RootDSE discovery", true, "LDAP bind and RootDSE probes are served by nexus-directory"},
-        {"cldap-netlogon", "CLDAP NetLogon locator", true, "LDAP ping netlogon returns a NETLOGON_SAM_LOGON_RESPONSE_EX locator response"},
-        {"ldap-search", "LDAP AD object search", true, "Subtree/base searches over stored AD objects are served with basic equality, presence and SPN filters"},
-        {"ldap-ad", "LDAP AD object mutations", false, "LDAP add/modify/delete still need schema-aware AD write semantics"},
-        {"kerberos-probe", "Kerberos KDC probe", true, "KDC TCP/UDP listeners return structured Kerberos errors for AS/TGS probes"},
-        {"kerberos-preauth", "Kerberos pre-authentication", true, "PA-ENC-TIMESTAMP is parsed and validated with AES-CTS-HMAC-SHA1 keys"},
-        {"kerberos", "Kerberos KDC tickets", false, "AS/TGS ticket encryption and PAC issuance are not implemented yet"},
-        {"netlogon", "Netlogon / MS-RPC", false, "Windows domain join still needs Netlogon, SAMR and LSA RPC"},
-        {"sysvol", "SMB SYSVOL / NETLOGON", false, "SYSVOL and NETLOGON shares are not implemented yet"},
-    };
-}
-
-Json::Value PlatformState::active_directory_join_guide() const {
-    std::scoped_lock lock(mutex_);
-    Json::Value guide(Json::objectValue);
-    guide["supported"] = false;
-    guide["target"] = "Windows 11 Pro";
-    guide["message"] = ad_domain_.has_value()
-        ? "The domain model, DNS locator, LDAP RootDSE and CLDAP NetLogon locator are configured, but Kerberos tickets, RPC Netlogon/SAMR/LSA and SMB SYSVOL are still required before Windows can join."
-        : "Create a Windows domain in Nexus before attempting a Windows join.";
-    if (ad_domain_.has_value()) {
-        guide["domain"] = ad_domain_->dns_name;
-        guide["netbiosName"] = ad_domain_->netbios_name;
-        guide["realm"] = ad_domain_->realm;
-        guide["dnsServer"] = "Point the Windows client DNS server to this Nexus host.";
-        guide["windowsSteps"].append("Settings > System > About > Domain or workgroup");
-        guide["windowsSteps"].append("Join domain: " + ad_domain_->dns_name);
-        guide["windowsSteps"].append("Use the Nexus-created Administrator account once protocol readiness is complete.");
-    }
-    guide["blockingProtocols"].append("LDAP AD-compatible bind/search");
-    guide["blockingProtocols"].append("Kerberos KDC AS/TGS");
-    guide["blockingProtocols"].append("MS-RPC Netlogon/SAMR/LSA");
-    guide["blockingProtocols"].append("SMB SYSVOL/NETLOGON");
-    return guide;
-}
-
 std::vector<nexus::core::DirectoryObject> PlatformState::directory_objects() const {
     std::scoped_lock lock(mutex_);
     return directory_;
@@ -1371,6 +762,62 @@ std::vector<nexus::core::PkiCertificate> PlatformState::pki_certificates() const
 std::vector<nexus::core::PkiRevocation> PlatformState::pki_revocations() const {
     std::scoped_lock lock(mutex_);
     return revocations_;
+}
+
+nexus::core::PkiAssistantSnapshot PlatformState::pki_assistant() const {
+    std::scoped_lock lock(mutex_);
+
+    nexus::core::PkiAssistantSnapshot snapshot;
+    snapshot.authority_count = authorities_.size();
+    snapshot.certificate_count = certificates_.size();
+    snapshot.revocation_count = revocations_.size();
+    snapshot.leaf_days_valid = config_.pki.leaf_days_valid;
+
+    auto add_insight = [&](std::string category, std::string title, std::string detail, std::string severity) {
+        snapshot.insights.push_back({std::move(category), std::move(title), std::move(detail), std::move(severity)});
+    };
+
+    if (authorities_.empty()) {
+        snapshot.recommended_mode = "authority";
+        snapshot.recommended_profile_id = "offline-root";
+        snapshot.headline = "Create the first trust root";
+        add_insight("next_step", "Bootstrap trust", "Create a root CA before issuing any leaf certificates.", "critical");
+        add_insight("operating_rule", "Keep the root offline", "Use the root for trust anchor management, not for routine issuance.", "warning");
+    } else if (certificates_.empty()) {
+        snapshot.recommended_mode = "certificate";
+        snapshot.recommended_profile_id = "service-mtls";
+        snapshot.headline = "Issue the first service certificate";
+        add_insight("next_step", "Put the CA to work", "Issue a leaf certificate for an API, VPN edge, or internal service.", "critical");
+        add_insight("operating_rule", "Match SANs exactly", "Use DNS names that match the target workload and its aliases.", "warning");
+    } else if (revocations_.empty()) {
+        snapshot.recommended_mode = "revocation";
+        snapshot.recommended_profile_id = "incident-response";
+        snapshot.headline = "Document the revocation playbook";
+        add_insight("next_step", "Prepare incident response", "Capture how you will revoke a compromised certificate.", "warning");
+        add_insight("operating_rule", "Track serials", "Keep certificate serial numbers in your operator notes and incident timeline.", "info");
+    } else {
+        snapshot.recommended_mode = "certificate";
+        snapshot.recommended_profile_id = "service-mtls";
+        snapshot.headline = "Tune rotation and renewal policy";
+        add_insight("next_step", "Reduce lifetime risk", "Prefer shorter-lived leaf certificates and automate renewal.", "info");
+        add_insight("operating_rule", "Review trust surface", "Keep the root isolated and use dedicated issuance certificates where possible.", "info");
+    }
+
+    if (snapshot.leaf_days_valid > 365) {
+        add_insight("policy", "Leaf lifetime is long", "Current leaf certificates default to " + std::to_string(snapshot.leaf_days_valid) + " days; shorter lifetimes are usually easier to operate.", "warning");
+    } else if (snapshot.leaf_days_valid <= 90) {
+        add_insight("policy", "Leaf lifetime is short", "Current leaf certificates default to " + std::to_string(snapshot.leaf_days_valid) + " days; make sure renewal is automated.", "info");
+    }
+
+    if (authorities_.size() > 1) {
+        add_insight("topology", "Multiple authorities exist", "Consider whether one authority should become an offline root and the others intermediates.", "info");
+    }
+
+    if (snapshot.headline.empty()) {
+        snapshot.headline = "Review your PKI posture";
+    }
+
+    return snapshot;
 }
 
 std::vector<nexus::core::AptRepository> PlatformState::apt_repositories() const {
@@ -1511,7 +958,6 @@ bool PlatformState::create_dns_zone(const std::string& zone_name, const std::str
     }
 
     zones_.push_back({zone_name, default_zone_serial(), {}});
-    persist_dns_zone_to_database(zones_.back(), config_.database_url);
     jobs_.enqueue("dns", "Create zone " + zone_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "zone.created", zone_name});
     revision_ += 1;
@@ -1538,10 +984,6 @@ bool PlatformState::update_dns_zone(const std::string& zone_name, const std::str
 
     target->name = new_name;
     target->serial += 1;
-    persist_dns_zone_to_database(*target, config_.database_url);
-    if (zone_name != new_name) {
-        delete_dns_zone_from_database(zone_name, config_.database_url);
-    }
     jobs_.enqueue("dns", "Rename zone " + zone_name + " to " + new_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "zone.updated", zone_name + " -> " + new_name});
     revision_ += 1;
@@ -1556,7 +998,6 @@ bool PlatformState::delete_dns_zone(const std::string& zone_name, const std::str
     }
 
     zones_.erase(it);
-    delete_dns_zone_from_database(zone_name, config_.database_url);
     jobs_.enqueue("dns", "Delete zone " + zone_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "zone.deleted", zone_name});
     revision_ += 1;
@@ -1575,7 +1016,6 @@ bool PlatformState::add_dns_record(
 
     it->records.push_back(record);
     it->serial += 1;
-    persist_dns_zone_to_database(*it, config_.database_url);
     jobs_.enqueue("dns", "Apply zone update for " + zone_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "record.created", record.name + " " + record.type});
     revision_ += 1;
@@ -1595,7 +1035,6 @@ bool PlatformState::update_dns_record(
 
     it->records[record_index] = record;
     it->serial += 1;
-    persist_dns_zone_to_database(*it, config_.database_url);
     jobs_.enqueue("dns", "Update record in " + zone_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "record.updated", zone_name + " #" + std::to_string(record_index)});
     revision_ += 1;
@@ -1611,7 +1050,6 @@ bool PlatformState::delete_dns_record(const std::string& zone_name, std::size_t 
 
     it->records.erase(it->records.begin() + static_cast<std::ptrdiff_t>(record_index));
     it->serial += 1;
-    persist_dns_zone_to_database(*it, config_.database_url);
     jobs_.enqueue("dns", "Delete record in " + zone_name);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "dns", "record.deleted", zone_name + " #" + std::to_string(record_index)});
     revision_ += 1;
@@ -1692,18 +1130,14 @@ bool PlatformState::create_directory_object(
     }
     if (!password.empty()) {
         object.attributes["userPasswordHash"] = password_hasher_.hash_password(password);
-        object.attributes["adSecretState"] = "wrapped";
     }
+
+    persist_directory_object_to_database(object, config_.database_url);
 
     std::scoped_lock lock(mutex_);
     const auto duplicate = std::find_if(directory_.begin(), directory_.end(), [&](const auto& current) { return current.dn == object.dn; });
     if (duplicate != directory_.end()) {
         return false;
-    }
-    persist_directory_object_to_database(object, config_.database_url);
-    if (!password.empty() && ad_domain_.has_value()) {
-        const auto principal = object.attributes.contains("sAMAccountName") ? object.attributes.at("sAMAccountName") : object.dn;
-        persist_ad_account_secret_to_database(object.dn, password, ad_domain_->realm, principal, config_);
     }
     directory_.push_back(std::move(object));
     jobs_.enqueue("directory", "Create object " + directory_.back().dn);
@@ -1740,26 +1174,12 @@ bool PlatformState::update_directory_object(
         if (existing_hash != it->attributes.end() && object.attributes.find("userPasswordHash") == object.attributes.end()) {
             object.attributes["userPasswordHash"] = existing_hash->second;
         }
-        const auto existing_secret_state = it->attributes.find("adSecretState");
-        if (existing_secret_state != it->attributes.end() && object.attributes.find("adSecretState") == object.attributes.end()) {
-            object.attributes["adSecretState"] = existing_secret_state->second;
-        }
     } else {
         object.attributes["userPasswordHash"] = password_hasher_.hash_password(password);
-        object.attributes["adSecretState"] = "wrapped";
     }
 
     persist_directory_object_to_database(object, config_.database_url);
-    if (!password.empty() && ad_domain_.has_value()) {
-        const auto principal = object.attributes.contains("sAMAccountName") ? object.attributes.at("sAMAccountName") : object.dn;
-        persist_ad_account_secret_to_database(object.dn, password, ad_domain_->realm, principal, config_);
-    }
     if (dn != object.dn) {
-        if (password.empty()) {
-            rename_ad_account_secret_in_database(dn, object.dn, config_.database_url);
-        } else {
-            delete_ad_account_secret_from_database(dn, config_.database_url);
-        }
         delete_directory_object_from_database(dn, config_.database_url);
     }
 
@@ -1777,7 +1197,6 @@ bool PlatformState::delete_directory_object(const std::string& dn, const std::st
         return false;
     }
     delete_directory_object_from_database(dn, config_.database_url);
-    delete_ad_account_secret_from_database(dn, config_.database_url);
     directory_.erase(it);
     jobs_.enqueue("directory", "Delete object " + dn);
     audit_events_.push_back({nexus::core::utc_timestamp(), actor, "directory", "object.deleted", dn});
@@ -2127,9 +1546,8 @@ std::optional<std::string> PlatformState::render_apt_release(
 void PlatformState::initialize_runtime_state() {
     std::scoped_lock lock(mutex_);
     services_ = make_services(config_);
-    ad_domain_ = load_active_directory_domain_from_database(config_.database_url);
-    directory_ = load_directory_objects_from_database(config_.database_url);
-    zones_ = load_dns_zones_from_database(config_.database_url);
+    directory_.clear();
+    zones_.clear();
     pools_.clear();
     authorities_.clear();
     certificates_.clear();

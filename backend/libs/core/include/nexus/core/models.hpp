@@ -29,22 +29,6 @@ struct DirectoryObject {
     std::map<std::string, std::string> attributes;
 };
 
-struct ActiveDirectoryDomain {
-    std::string dns_name;
-    std::string netbios_name;
-    std::string realm;
-    std::string base_dn;
-    std::string domain_sid;
-    std::string created_at;
-};
-
-struct ActiveDirectoryReadinessItem {
-    std::string id;
-    std::string label;
-    bool ready{false};
-    std::string detail;
-};
-
 struct DnsRecord {
     std::string name;
     std::string type;
@@ -85,6 +69,24 @@ struct PkiRevocation {
     std::string common_name;
     std::string reason;
     std::string revoked_at;
+};
+
+struct PkiInsight {
+    std::string category;
+    std::string title;
+    std::string detail;
+    std::string severity;
+};
+
+struct PkiAssistantSnapshot {
+    std::string recommended_mode;
+    std::string recommended_profile_id;
+    std::string headline;
+    std::vector<PkiInsight> insights;
+    std::size_t authority_count{0};
+    std::size_t certificate_count{0};
+    std::size_t revocation_count{0};
+    int leaf_days_valid{0};
 };
 
 struct PkiAuthority {

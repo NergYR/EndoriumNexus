@@ -158,7 +158,7 @@ export function SettingsPage() {
   }, [featureFlags.data]);
 
   if (settings.isLoading || !settings.data || dashboard.isLoading || !dashboard.data || featureFlags.isLoading || !featureFlags.data) {
-    return <div className="text-sm text-slate-400">Loading control room...</div>;
+    return <div className="text-sm text-slate-500">Chargement des réglages...</div>;
   }
 
   const healthyServices = serviceStates.filter((state) => state === "healthy").length;
@@ -213,21 +213,19 @@ export function SettingsPage() {
         <Panel title="Runtime Snapshot" eyebrow="Monitoring">
           <div className="grid gap-3 md:grid-cols-2">
             {dashboard.data.services.map((service) => (
-              <article className="rounded-2xl border border-white/8 bg-white/4 px-4 py-4" key={service.id}>
+              <article className="rounded-2xl border border-slate-200 bg-white px-4 py-4" key={service.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="font-medium text-slate-100">{service.label}</p>
-                    <p className="mt-1 text-sm text-slate-400">{service.summary}</p>
-                                      {service.blockingReason && (
-                                        <p className="mt-2 text-xs text-amber-300">⚠ {service.blockingReason}</p>
-                                      )}
+                    <p className="font-medium text-slate-900">{service.label}</p>
+                    <p className="mt-1 text-sm text-slate-600">{service.summary}</p>
+                    {service.blockingReason && <p className="mt-2 text-xs text-amber-700">{service.blockingReason}</p>}
                   </div>
                   <ServiceBadge state={service.state} />
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {service.endpoints.map((endpoint) => (
                     <span
-                      className="rounded-full border border-white/8 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-400"
+                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-600"
                       key={endpoint}
                     >
                       {endpoint}
@@ -239,46 +237,27 @@ export function SettingsPage() {
           </div>
         </Panel>
 
-        <Panel title="Debug Console" eyebrow="Live Diagnostics">
-          <div className="space-y-3 text-sm text-slate-300">
+        <Panel title="Aperçu rapide" eyebrow="Live Diagnostics">
+          <div className="space-y-3 text-sm text-slate-600">
             <p>
-              Domain: <span className="text-slate-100">{settings.data.domain}</span>
+              Domaine: <span className="text-slate-900">{settings.data.domain}</span>
             </p>
             <p>
-              Admin email: <span className="text-slate-100">{settings.data.adminEmail}</span>
+              Email admin: <span className="text-slate-900">{settings.data.adminEmail}</span>
             </p>
             <p>
-              Database: <span className="text-slate-100">{settings.data.databaseConfigured ? settings.data.databaseUrl : "disabled"}</span>
+              Base de données: <span className="text-slate-900">{settings.data.databaseConfigured ? "connectée" : "désactivée"}</span>
             </p>
             <p>
-              Blob root: <span className="text-slate-100">{settings.data.blobRoot}</span>
+              Blob root: <span className="text-slate-900">{settings.data.blobRoot}</span>
             </p>
             <p>
-              State root: <span className="text-slate-100">{settings.data.stateRoot}</span>
+              State root: <span className="text-slate-900">{settings.data.stateRoot}</span>
             </p>
           </div>
-          <pre className="mt-4 overflow-x-auto rounded-2xl border border-white/8 bg-slate-950/75 p-4 text-xs leading-6 text-cyan-50">
-            {JSON.stringify(
-              {
-                settings: settings.data,
-                services: dashboard.data.services.map((service) => ({
-                  id: service.id,
-                  state: service.state,
-                  summary: service.summary
-                })),
-                stats: {
-                  directoryObjects: dashboard.data.directoryObjects,
-                  dnsRecords: dashboard.data.dnsRecords,
-                  dhcpLeases: dashboard.data.dhcpLeases,
-                  pendingJobs: dashboard.data.pendingJobs,
-                  pkiRevocations: dashboard.data.pkiRevocations,
-                  repoPackages: dashboard.data.repoPackages
-                }
-              },
-              null,
-              2
-            )}
-          </pre>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            Cette vue remplace l'ancien console de debug pour garder seulement les informations utiles.
+          </div>
         </Panel>
       </div>
 
@@ -294,7 +273,7 @@ export function SettingsPage() {
             <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Environment</span>
               <input
-                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, environment: event.target.value }))}
                 value={form.environment}
               />
@@ -302,7 +281,7 @@ export function SettingsPage() {
             <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Domain</span>
               <input
-                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, domain: event.target.value }))}
                 value={form.domain}
               />
@@ -310,7 +289,7 @@ export function SettingsPage() {
             <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Admin email</span>
               <input
-                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, adminEmail: event.target.value }))}
                 value={form.adminEmail}
               />
@@ -318,7 +297,7 @@ export function SettingsPage() {
             <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Database URL</span>
               <input
-                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, databaseUrl: event.target.value }))}
                 value={form.databaseUrl}
               />
@@ -329,7 +308,7 @@ export function SettingsPage() {
             <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Blob root</span>
               <input
-                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, blobRoot: event.target.value }))}
                 value={form.blobRoot}
               />
@@ -337,7 +316,7 @@ export function SettingsPage() {
             <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">State root</span>
               <input
-                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, stateRoot: event.target.value }))}
                 value={form.stateRoot}
               />
@@ -345,7 +324,7 @@ export function SettingsPage() {
             <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">TOTP secret</span>
               <input
-                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, adminTotpSecret: event.target.value }))}
                 value={form.adminTotpSecret}
               />
@@ -357,7 +336,7 @@ export function SettingsPage() {
               <label className="grid gap-2" key={field}>
                 <span className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</span>
                 <input
-                  className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                  className="field rounded-2xl px-4 py-3 outline-none"
                   onChange={(event) =>
                     setForm((current) => ({
                       ...current,
@@ -372,7 +351,7 @@ export function SettingsPage() {
             <label className="grid gap-2">
               <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Admin password hash</span>
               <input
-                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, adminPasswordHash: event.target.value }))}
                 type="password"
                 value={form.adminPasswordHash}
@@ -382,46 +361,42 @@ export function SettingsPage() {
 
           <div className="flex flex-wrap items-center gap-3">
             <button
-              className="accent-gradient rounded-2xl px-5 py-3 font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+              className="accent-gradient rounded-2xl px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
               disabled={updateSettings.isPending}
               type="submit"
             >
               {updateSettings.isPending ? "Applying..." : "Apply configuration"}
             </button>
-            {updateSettings.error ? <p className="text-sm text-rose-200">{updateSettings.error.message}</p> : null}
-            {updateSettings.isSuccess ? <p className="text-sm text-emerald-200">Configuration saved.</p> : null}
+            {updateSettings.error ? <p className="text-sm text-rose-700">{updateSettings.error.message}</p> : null}
+            {updateSettings.isSuccess ? <p className="text-sm text-emerald-700">Configuration saved.</p> : null}
           </div>
-          <p className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3 text-sm text-slate-400">
-            Service-specific configuration now lives in the dedicated service tabs. This page only keeps the global platform settings.
-          </p>
         </form>
       </Panel>
 
       <Panel title="Module Flags" eyebrow="Module Control">
         <div className="space-y-3">
-          <p className="text-sm text-slate-400">
-            Toggle the runtime modules below. These flags are persisted separately from the global platform settings.
+          <p className="text-sm text-slate-600">
+            Activez uniquement les modules réellement prêts à être utilisés.
           </p>
           <div className="grid gap-3">
             {featureFlags.data.map((entry) => {
               const ready = canEnableService(entry.serviceId);
               const enabled = featureDraft[entry.featureFlag] ?? featureFlagMap.get(entry.featureFlag) ?? entry.enabled;
 
+              const statusText =
+                entry.serviceId === "api"
+                  ? "Toujours actif"
+                  : ready
+                    ? `Priorité ${entry.priority}`
+                    : dashboard.data.services.find((service) => service.id === entry.serviceId)?.blockingReason ||
+                      "Configuration incomplète";
+
               return (
-                <label className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3" key={entry.serviceId}>
+                <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3" key={entry.serviceId}>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-slate-100">{entry.label}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                                  {entry.serviceId === "api"
-                                    ? "Always on"
-                                    : ready
-                                      ? `Priority ${entry.priority}`
-                                      : (() => {
-                                          const service = dashboard.data.services.find((s) => s.id === entry.serviceId);
-                                          return service?.blockingReason || "Complete the service-specific configuration first";
-                                        })()}
-                      </p>
+                      <p className="text-sm font-medium text-slate-900">{entry.label}</p>
+                      <p className="mt-1 text-xs text-slate-500">{statusText}</p>
                     </div>
                     <input
                       disabled={entry.serviceId === "api" || !ready}
@@ -441,15 +416,15 @@ export function SettingsPage() {
           </div>
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
-              className="accent-gradient rounded-2xl px-5 py-3 font-medium text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+              className="accent-gradient rounded-2xl px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
               disabled={updateFeatureFlags.isPending}
               type="button"
               onClick={() => updateFeatureFlags.mutate({ features: featureDraft })}
             >
               {updateFeatureFlags.isPending ? "Saving module flags..." : "Save module flags"}
             </button>
-            {updateFeatureFlags.error ? <p className="text-sm text-rose-200">{updateFeatureFlags.error.message}</p> : null}
-            {updateFeatureFlags.isSuccess ? <p className="text-sm text-emerald-200">Module flags saved.</p> : null}
+            {updateFeatureFlags.error ? <p className="text-sm text-rose-700">{updateFeatureFlags.error.message}</p> : null}
+            {updateFeatureFlags.isSuccess ? <p className="text-sm text-emerald-700">Module flags saved.</p> : null}
           </div>
         </div>
       </Panel>
@@ -467,9 +442,9 @@ export function SettingsPage() {
             ["LDAPS", settings.data.ports.ldaps],
             ["Kerberos", settings.data.ports.kerberos]
           ].map(([label, value]) => (
-            <div className="rounded-2xl border border-white/8 bg-white/4 px-4 py-3" key={label}>
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3" key={label}>
               <dt className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</dt>
-              <dd className="mt-2 text-sm text-slate-100">{value}</dd>
+              <dd className="mt-2 text-sm text-slate-900">{value}</dd>
             </div>
           ))}
         </dl>

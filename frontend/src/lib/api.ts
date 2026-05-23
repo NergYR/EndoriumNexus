@@ -1,14 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
-  ActiveDirectoryDomain,
-  ActiveDirectoryDomainCreatePayload,
-  ActiveDirectoryJoinGuide,
-  ActiveDirectoryReadiness,
   AptRepository,
   AptPackagePayload,
+  ActiveDirectoryDomainCreatePayload,
+  ActiveDirectoryDomainSnapshot,
+  ActiveDirectoryReadinessItem,
   AuditEvent,
   AuthSession,
+  PkiAssistantSnapshot,
   DashboardSnapshot,
   DhcpPoolCreatePayload,
   DhcpPoolUpdatePayload,
@@ -104,58 +104,6 @@ export function useDirectoryObjects() {
   return useQuery<DirectoryObject[]>({
     queryKey: ["directory"],
     queryFn: () => request<DirectoryObject[]>("/api/v1/directory/objects")
-  });
-}
-
-export function useActiveDirectoryDomain() {
-  return useQuery<ActiveDirectoryDomain | null>({
-    queryKey: ["ad-domain"],
-    queryFn: async () => {
-      try {
-        return await request<ActiveDirectoryDomain>("/api/v1/ad/domain");
-      } catch (error) {
-        if (error instanceof Error && error.message.includes("active directory domain is not configured")) {
-          return null;
-        }
-        throw error;
-      }
-    }
-  });
-}
-
-export function useActiveDirectoryReadiness() {
-  return useQuery<ActiveDirectoryReadiness>({
-    queryKey: ["ad-readiness"],
-    queryFn: () => request<ActiveDirectoryReadiness>("/api/v1/ad/readiness")
-  });
-}
-
-export function useActiveDirectoryJoinGuide() {
-  return useQuery<ActiveDirectoryJoinGuide>({
-    queryKey: ["ad-join-guide"],
-    queryFn: () => request<ActiveDirectoryJoinGuide>("/api/v1/ad/join-guide")
-  });
-}
-
-export function useCreateActiveDirectoryDomain() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: ActiveDirectoryDomainCreatePayload) =>
-      request<{ ok: boolean; domain: ActiveDirectoryDomain }>("/api/v1/ad/domain", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["ad-domain"] });
-      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
-      await queryClient.invalidateQueries({ queryKey: ["ad-join-guide"] });
-      await queryClient.invalidateQueries({ queryKey: ["directory"] });
-      await queryClient.invalidateQueries({ queryKey: ["dns-zones"] });
-      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-    }
   });
 }
 
@@ -381,10 +329,161 @@ export function useDeleteDhcpPool() {
   });
 }
 
+function synthesizeNetbiosName(domain: string) {
+  const label = domain.split(".")[0] ?? domain;
+  const sanitized = label.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return (sanitized.slice(0, 15) || "ENDORIUM");
+}
+
+function synthesizeDomainSid(domain: string) {
+  let hash = 0;
+  for (const character of domain) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  const a = 1000 + (hash % 1000000000);
+  const b = 1000 + ((hash >>> 3) % 1000000000);
+  const c = 1000 + ((hash >>> 7) % 1000000000);
+  return `S-1-5-21-${a}-${b}-${c}`;
+}
+
+function toActiveDirectoryDomain(settings: SettingsSnapshot): ActiveDirectoryDomainSnapshot {
+  return {
+    dnsName: settings.domain,
+    netbiosName: synthesizeNetbiosName(settings.domain),
+    realm: settings.directory.realm,
+    baseDn: settings.directory.baseDn,
+    domainSid: synthesizeDomainSid(settings.domain),
+    domainControllerHost: settings.domain.split(".")[0] ?? "dc1",
+    domainControllerAddress: "127.0.0.1"
+  };
+}
+
+export function useActiveDirectoryDomain() {
+  const settings = useSettings();
+  return {
+    data: settings.data ? toActiveDirectoryDomain(settings.data) : undefined,
+    isLoading: settings.isLoading,
+    error: settings.error
+  };
+}
+
+export function useActiveDirectoryReadiness() {
+  const dashboard = useDashboard();
+  const settings = useSettings();
+
+  const items: ActiveDirectoryReadinessItem[] = [
+    {
+      id: "domain",
+      label: "Domain profile",
+      ready: Boolean(settings.data?.domain && settings.data.directory.baseDn),
+      detail: settings.data ? `${settings.data.domain} / ${settings.data.directory.baseDn}` : "No domain configured yet"
+    },
+    {
+      id: "controllers",
+      label: "Directory services",
+      ready: Boolean(dashboard.data?.services.find((service) => service.id === "directory" && !service.blockingReason)),
+      detail: dashboard.data?.services.find((service) => service.id === "directory")?.summary ?? "Directory service status unavailable"
+    },
+    {
+      id: "dns",
+      label: "DNS listeners",
+      ready: Boolean(settings.data?.ports.dnsTcp && settings.data?.ports.dnsUdp),
+      detail: settings.data ? `${settings.data.ports.dnsTcp}/${settings.data.ports.dnsUdp}` : "DNS ports unavailable"
+    },
+    {
+      id: "bootstrap",
+      label: "Admin bootstrap",
+      ready: Boolean(settings.data?.adminEmail),
+      detail: settings.data?.adminEmail ?? "No admin account configured"
+    }
+  ];
+
+  return {
+    data: { items },
+    isLoading: dashboard.isLoading || settings.isLoading,
+    error: dashboard.error ?? settings.error
+  };
+}
+
+export function useActiveDirectoryJoinGuide() {
+  const domain = useActiveDirectoryDomain();
+  const readiness = useActiveDirectoryReadiness();
+
+  const message = !domain.data
+    ? "Create a Windows domain first, then add users, groups, and service accounts."
+    : readiness.data.items.every((item) => item.ready)
+      ? `The ${domain.data.dnsName} domain is ready for onboarding and group policy work.`
+      : `Finish the blocked readiness items for ${domain.data.dnsName} before joining clients.`;
+
+  return {
+    data: { message },
+    isLoading: domain.isLoading || readiness.isLoading,
+    error: domain.error ?? readiness.error
+  };
+}
+
+export function useCreateActiveDirectoryDomain() {
+  const queryClient = useQueryClient();
+  const settings = useSettings();
+  return useMutation({
+    mutationFn: (payload: ActiveDirectoryDomainCreatePayload) => {
+      if (!settings.data) {
+        throw new Error("settings unavailable");
+      }
+
+      return request<{ ok: boolean }>("/api/v1/settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          environment: settings.data.environment,
+          domain: payload.dnsName,
+          blobRoot: settings.data.blobRoot,
+          stateRoot: settings.data.stateRoot,
+          databaseUrl: settings.data.databaseUrl,
+          adminEmail: settings.data.adminEmail,
+          adminPasswordHash: settings.data.adminPasswordHash,
+          adminTotpSecret: settings.data.adminTotpSecret,
+          httpPort: settings.data.ports.http,
+          ldapPort: settings.data.ports.ldap,
+          ldapsPort: settings.data.ports.ldaps,
+          kerberosPort: settings.data.ports.kerberos,
+          dnsTcpPort: settings.data.ports.dnsTcp,
+          dnsUdpPort: settings.data.ports.dnsUdp,
+          dhcpPort: settings.data.ports.dhcp,
+          directory: {
+            baseDn: payload.baseDn,
+            organization: settings.data.directory.organization,
+            realm: payload.dnsName.toUpperCase()
+          },
+          dns: settings.data.dns,
+          dhcp: settings.data.dhcp,
+          pki: settings.data.pki,
+          repo: settings.data.repo,
+          features: settings.data.features
+        })
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["settings"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["auth"] });
+    }
+  });
+}
+
 export function useRevocations() {
   return useQuery<PkiRevocation[]>({
     queryKey: ["pki-revocations"],
     queryFn: () => request<PkiRevocation[]>("/api/v1/pki/revocations")
+  });
+}
+
+export function usePkiAssistant() {
+  return useQuery<PkiAssistantSnapshot>({
+    queryKey: ["pki-assistant"],
+    queryFn: () => request<PkiAssistantSnapshot>("/api/v1/pki/assistant")
   });
 }
 

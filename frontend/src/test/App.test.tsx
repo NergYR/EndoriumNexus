@@ -57,7 +57,7 @@ describe("frontend auth shell", () => {
         <LoginPage />
       </QueryClientProvider>
     );
-    expect(screen.getByText(/Operate identity, network and trust/i)).toBeInTheDocument();
+    expect(screen.getByText(/Une console claire pour les services essentiels/i)).toBeInTheDocument();
   });
 
   it("refreshes live queries when the platform stream emits a state change", async () => {
@@ -112,7 +112,7 @@ describe("frontend auth shell", () => {
 
     render(<App />);
 
-    await screen.findByText(/Signed in as/i);
+    await screen.findByText(/Connecté en tant que/i);
     await waitFor(() => expect(MockEventSource.instances).toHaveLength(1));
     expect(MockEventSource.instances[0]?.url).toBe("/api/v1/dashboard/stream");
     await waitFor(() => expect(dashboardRequests).toBe(1));

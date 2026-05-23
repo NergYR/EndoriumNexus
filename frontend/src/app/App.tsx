@@ -7,25 +7,24 @@ import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { DhcpPage } from "../features/dhcp/DhcpPage";
 import { DirectoryPage } from "../features/directory/DirectoryPage";
 import { DnsPage } from "../features/dns/DnsPage";
+import { SetupWizardPage } from "../features/setup/SetupWizardPage";
 import { LoginPage } from "../features/settings/LoginPage";
 import { PkiPage } from "../features/pki/PkiPage";
 import { ReposPage } from "../features/repos/ReposPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
-import { SetupWizardPage } from "../features/setup/SetupWizardPage";
 import { useAuth } from "../lib/api";
 
 const queryClient = new QueryClient();
 
 const navItems = [
-  { to: "/dashboard", label: "Dashboard" },
-  { to: "/setup", label: "Setup Wizard" },
-  { to: "/directory", label: "Active Directory" },
-  { to: "/dns", label: "DNS Zones" },
-  { to: "/dhcp", label: "DHCP Pools" },
-  { to: "/pki", label: "PKI Revocations" },
-  { to: "/repos", label: "APT Repositories" },
-  { to: "/audit", label: "Audit Log" },
-  { to: "/settings", label: "Control Room" }
+  { to: "/dashboard", label: "Vue d'ensemble" },
+  { to: "/directory", label: "Annuaire" },
+  { to: "/dns", label: "DNS" },
+  { to: "/dhcp", label: "DHCP" },
+  { to: "/pki", label: "PKI" },
+  { to: "/repos", label: "Dépôts" },
+  { to: "/audit", label: "Journal" },
+  { to: "/settings", label: "Réglages" }
 ];
 
 function Shell() {
@@ -40,18 +39,10 @@ function Shell() {
     const stream = new EventSource("/api/v1/dashboard/stream");
     const handleStateChanged = () => {
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      void queryClient.invalidateQueries({ queryKey: ["ad-domain"] });
-      void queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
-      void queryClient.invalidateQueries({ queryKey: ["ad-join-guide"] });
       void queryClient.invalidateQueries({ queryKey: ["jobs"] });
       void queryClient.invalidateQueries({ queryKey: ["audit"] });
       void queryClient.invalidateQueries({ queryKey: ["dns-zones"] });
-      void queryClient.invalidateQueries({ queryKey: ["dhcp-pools"] });
-      void queryClient.invalidateQueries({ queryKey: ["directory"] });
-      void queryClient.invalidateQueries({ queryKey: ["pki-authorities"] });
-      void queryClient.invalidateQueries({ queryKey: ["pki-certificates"] });
       void queryClient.invalidateQueries({ queryKey: ["pki-revocations"] });
-      void queryClient.invalidateQueries({ queryKey: ["repos"] });
     };
 
     stream.addEventListener("state-changed", handleStateChanged);
@@ -64,8 +55,8 @@ function Shell() {
 
   if (auth.isLoading) {
     return (
-      <div className="grid min-h-screen place-items-center">
-        <div className="glow-panel rounded-3xl px-8 py-6 text-sm text-slate-200">
+      <div className="grid min-h-screen place-items-center px-4">
+        <div className="glow-panel rounded-3xl px-8 py-6 text-sm text-slate-300">
           Loading Endorium Nexus...
         </div>
       </div>
@@ -77,26 +68,27 @@ function Shell() {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
-      <aside className="border-r border-white/5 bg-slate-950/70 px-5 py-6">
-        <div className="glow-panel grid-sheen rounded-3xl p-5">
-          <p className="text-xs uppercase tracking-[0.32em] text-cyan-200/70">Endorium</p>
-          <h1 className="mt-3 text-3xl font-semibold text-accent">Nexus</h1>
-          <p className="mt-3 text-sm text-slate-400">
-            Unified control plane for directory, network, PKI and repository services.
-          </p>
-        </div>
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-20 border-b border-slate-700/60 bg-slate-950/85 px-4 py-4 backdrop-blur md:px-8">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="glow-panel grid-sheen rounded-2xl px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Endorium</p>
+              <h1 className="mt-2 text-lg font-semibold text-slate-50">Nexus</h1>
+            </div>
+            <p className="hidden text-sm text-slate-400 md:block">Console d'administration pour les services essentiels.</p>
+          </div>
 
-        <nav className="mt-6 space-y-2">
+          <nav className="flex flex-wrap gap-2">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
               className={({ isActive }) =>
                 [
-                  "block rounded-2xl border px-4 py-3 text-sm transition",
+                  "rounded-full border px-4 py-2 text-sm transition",
                   isActive
-                    ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-100 shadow-[0_0_28px_rgba(63,255,255,0.09)]"
-                    : "border-transparent bg-white/3 text-slate-300 hover:border-blue-300/20 hover:bg-white/6"
+                    ? "border-cyan-400/30 bg-cyan-400/10 text-slate-50"
+                    : "border-slate-700 bg-slate-900/60 text-slate-300 hover:border-slate-600 hover:bg-slate-800"
                 ].join(" ")
               }
               to={item.to}
@@ -104,26 +96,17 @@ function Shell() {
               {item.label}
             </NavLink>
           ))}
-        </nav>
-      </aside>
+          </nav>
+        </div>
+      </header>
 
       <main className="px-4 py-4 md:px-8 md:py-6">
-        <header className="mb-6 flex flex-col gap-3 rounded-3xl border border-white/6 bg-black/20 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <header className="mb-6 flex flex-col gap-3 rounded-3xl border border-slate-700/60 bg-slate-950/80 px-5 py-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-cyan-200/60">Operations Console</p>
-            <p className="mt-2 text-sm text-slate-400">
-              Signed in as <span className="text-slate-100">{auth.data.email}</span>
+            <p className="text-xs uppercase tracking-[0.26em] text-slate-400">Console d'administration</p>
+            <p className="mt-2 text-sm text-slate-300">
+              Connecté en tant que <span className="text-slate-50">{auth.data.email}</span>
             </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {auth.data.roles.map((role) => (
-              <span
-                className="rounded-full border border-blue-300/20 bg-blue-400/10 px-3 py-1 text-xs uppercase tracking-[0.18em] text-blue-100"
-                key={role}
-              >
-                {role}
-              </span>
-            ))}
           </div>
         </header>
 

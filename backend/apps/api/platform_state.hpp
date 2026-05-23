@@ -37,15 +37,13 @@ class PlatformState {
     bool update_settings(const nexus::core::Config& config, const std::string& actor);
     [[nodiscard]] nexus::core::DashboardSnapshot dashboard() const;
     [[nodiscard]] std::vector<nexus::core::ServiceStatus> services() const;
-    [[nodiscard]] std::optional<nexus::core::ActiveDirectoryDomain> active_directory_domain() const;
-    [[nodiscard]] std::vector<nexus::core::ActiveDirectoryReadinessItem> active_directory_readiness() const;
-    [[nodiscard]] Json::Value active_directory_join_guide() const;
     [[nodiscard]] std::vector<nexus::core::DirectoryObject> directory_objects() const;
     [[nodiscard]] std::vector<nexus::core::DnsZone> dns_zones() const;
     [[nodiscard]] std::vector<nexus::core::DhcpPool> dhcp_pools() const;
     [[nodiscard]] std::vector<nexus::core::PkiAuthority> pki_authorities() const;
     [[nodiscard]] std::vector<nexus::core::PkiCertificate> pki_certificates() const;
     [[nodiscard]] std::vector<nexus::core::PkiRevocation> pki_revocations() const;
+    [[nodiscard]] nexus::core::PkiAssistantSnapshot pki_assistant() const;
     [[nodiscard]] std::vector<nexus::core::AptRepository> apt_repositories() const;
     [[nodiscard]] std::vector<nexus::core::AuditEvent> audit_events() const;
     [[nodiscard]] std::vector<nexus::core::JobSummary> jobs() const;
@@ -82,14 +80,6 @@ class PlatformState {
     [[nodiscard]] bool restart_dhcp_service(const std::string& actor);
     [[nodiscard]] std::map<std::string, bool> feature_flags() const;
     [[nodiscard]] bool update_feature_flags(const std::map<std::string, bool>& features, const std::string& actor);
-    [[nodiscard]] bool create_active_directory_domain(
-        const nexus::core::ActiveDirectoryDomain& domain,
-        const std::string& admin_sam_account,
-        const std::string& admin_display_name,
-        const std::string& admin_password,
-        const std::string& domain_controller_host,
-        const std::string& domain_controller_address,
-        const std::string& actor);
     [[nodiscard]] bool create_directory_object(
         nexus::core::DirectoryObject object,
         const std::string& password,
@@ -163,7 +153,6 @@ class PlatformState {
     nexus::security::PasswordHasher password_hasher_;
     nexus::security::Totp totp_;
     std::vector<nexus::core::ServiceStatus> services_;
-    std::optional<nexus::core::ActiveDirectoryDomain> ad_domain_;
     std::vector<nexus::core::DirectoryObject> directory_;
     std::vector<nexus::core::DnsZone> zones_;
     std::vector<nexus::core::DhcpPool> pools_;

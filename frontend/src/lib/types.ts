@@ -48,51 +48,6 @@ export interface DirectoryObjectPayload extends DirectoryObject {
   password?: string;
 }
 
-export interface ActiveDirectoryDomain {
-  dnsName: string;
-  netbiosName: string;
-  realm: string;
-  baseDn: string;
-  domainSid: string;
-  createdAt: string;
-}
-
-export interface ActiveDirectoryDomainCreatePayload {
-  dnsName: string;
-  netbiosName: string;
-  realm?: string;
-  baseDn?: string;
-  adminSamAccount: string;
-  adminDisplayName: string;
-  adminPassword: string;
-  domainControllerHost: string;
-  domainControllerAddress: string;
-}
-
-export interface ActiveDirectoryReadinessItem {
-  id: string;
-  label: string;
-  ready: boolean;
-  detail: string;
-}
-
-export interface ActiveDirectoryReadiness {
-  ready: boolean;
-  items: ActiveDirectoryReadinessItem[];
-}
-
-export interface ActiveDirectoryJoinGuide {
-  supported: boolean;
-  target: string;
-  message: string;
-  domain?: string;
-  netbiosName?: string;
-  realm?: string;
-  dnsServer?: string;
-  windowsSteps?: string[];
-  blockingProtocols: string[];
-}
-
 export interface DnsRecord {
   name: string;
   type: string;
@@ -160,11 +115,65 @@ export interface DhcpPoolCreatePayload {
 
 export type DhcpPoolUpdatePayload = DhcpPoolCreatePayload;
 
+export interface ActiveDirectoryDomainSnapshot {
+  dnsName: string;
+  netbiosName: string;
+  realm: string;
+  baseDn: string;
+  domainSid: string;
+  domainControllerHost: string;
+  domainControllerAddress: string;
+}
+
+export interface ActiveDirectoryDomainCreatePayload {
+  dnsName: string;
+  netbiosName: string;
+  baseDn: string;
+  adminSamAccount: string;
+  adminDisplayName: string;
+  adminPassword: string;
+  domainControllerHost: string;
+  domainControllerAddress: string;
+}
+
+export interface ActiveDirectoryReadinessItem {
+  id: string;
+  label: string;
+  detail: string;
+  ready: boolean;
+}
+
+export interface ActiveDirectoryReadiness {
+  items: ActiveDirectoryReadinessItem[];
+}
+
+export interface ActiveDirectoryJoinGuide {
+  message: string;
+}
+
 export interface PkiRevocation {
   serial: string;
   commonName: string;
   reason: string;
   revokedAt: string;
+}
+
+export interface PkiInsight {
+  category: string;
+  title: string;
+  detail: string;
+  severity: string;
+}
+
+export interface PkiAssistantSnapshot {
+  recommendedMode: string;
+  recommendedProfileId: string;
+  headline: string;
+  insights: PkiInsight[];
+  authorityCount: number;
+  certificateCount: number;
+  revocationCount: number;
+  leafDaysValid: number;
 }
 
 export interface PkiAuthority {

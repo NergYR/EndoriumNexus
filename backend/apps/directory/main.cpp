@@ -15,6 +15,10 @@
 
 namespace {
 
+std::filesystem::path kerberos_key_file(const nexus::core::Config& config) {
+    return config.state_root / "ad" / "kerberos_keys.hex";
+}
+
 std::vector<nexus::protocol::KerberosKey> parse_wrapped_kerberos_keys(
     const nexus::core::Config& config,
     const std::string& wrapped_keys_json) {
@@ -36,11 +40,11 @@ std::vector<nexus::protocol::KerberosKey> parse_wrapped_kerberos_keys(
         if (wrapped.empty()) {
             continue;
         }
-        auto key_hex = nexus::security::open_ad_secret(config.directory.key_encryption_key_file, wrapped);
+        auto key_hex = nexus::security::open_ad_secret(kerberos_key_file(config), wrapped);
         if (!key_hex.has_value()) {
             continue;
         }
-        parsed.push_back({
+        parsed.push_back(nexus::protocol::KerberosKey{
             0,
             enctype_name,
             node.get("salt", "").asString(),
@@ -179,9 +183,9 @@ int main() {
         config.domain,
         config.directory.base_dn,
         config.directory.realm,
-        config.directory.site_name,
-        config.directory.domain_controller_host,
-        config.directory.domain_controller_address,
+        "default-site",
+        config.ldap.host,
+        config.ldap.host,
     };
 
     const auto ldap_objects = load_ldap_objects(config);
@@ -202,16 +206,11 @@ int main() {
 
     return nexus::core::run_uv_daemon(
         "directory",
-        {
+        std::vector<nexus::core::UvListener>{
             {"ldap", config.ldap.host, config.ldap.port, nexus::core::UvTransport::tcp, ldap_handler},
             {"cldap", config.ldap.host, config.ldap.port, nexus::core::UvTransport::udp, ldap_handler},
-            {"ldaps", config.ldaps.host, config.ldaps.port, nexus::core::UvTransport::tcp},
-            {"global-catalog", config.global_catalog.host, config.global_catalog.port, nexus::core::UvTransport::tcp, ldap_handler},
+            {"ldaps", config.ldaps.host, config.ldaps.port, nexus::core::UvTransport::tcp, ldap_handler},
             {"kerberos-tcp", config.kerberos.host, config.kerberos.port, nexus::core::UvTransport::tcp, kerberos_tcp_handler},
             {"kerberos-udp", config.kerberos.host, config.kerberos.port, nexus::core::UvTransport::udp, kerberos_udp_handler},
-            {"kpasswd-tcp", config.kpasswd.host, config.kpasswd.port, nexus::core::UvTransport::tcp},
-            {"kpasswd-udp", config.kpasswd.host, config.kpasswd.port, nexus::core::UvTransport::udp},
-            {"rpc-endpoint-mapper", config.rpc_endpoint_mapper.host, config.rpc_endpoint_mapper.port, nexus::core::UvTransport::tcp},
-            {"smb", config.smb.host, config.smb.port, nexus::core::UvTransport::tcp},
         });
 }

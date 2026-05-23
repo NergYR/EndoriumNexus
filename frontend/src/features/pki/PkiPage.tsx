@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Panel } from "../../components/Panel";
 import { AdvancedSection, Wizard, WizardSummary } from "../../components/Wizard";
@@ -6,10 +6,41 @@ import {
   useCreatePkiAuthority,
   useCreatePkiCertificate,
   useCreateRevocation,
+  usePkiAssistant,
   usePkiAuthorities,
   usePkiCertificates,
   useRevocations
 } from "../../lib/api";
+
+type WizardMode = "authority" | "certificate" | "revocation";
+
+type PkiProfile = {
+  id: string;
+  label: string;
+  description: string;
+  mode: WizardMode;
+  summary: string;
+  risk: string;
+  recommendation: string;
+  authority?: {
+    name: string;
+    commonName: string;
+    organization: string;
+    sans: string;
+    daysValid: number;
+  };
+  certificate?: {
+    commonName: string;
+    organization: string;
+    sans: string;
+    daysValid: number;
+  };
+  revocation?: {
+    serial: string;
+    commonName: string;
+    reason: string;
+  };
+};
 
 const REVOCATION_REASONS = [
   "keyCompromise",
@@ -21,8 +52,75 @@ const REVOCATION_REASONS = [
   "removeFromCRL"
 ] as const;
 
+const PKI_PROFILES: PkiProfile[] = [
+  {
+    id: "offline-root",
+    label: "Offline root CA",
+    description: "Create the trust anchor first, with a long lifetime and explicit naming.",
+    mode: "authority",
+    summary: "Best for a new PKI that needs a clean trust root.",
+    risk: "Do not expose the root CA for routine issuance.",
+    recommendation: "Keep the root offline and issue leaf certificates from intermediates later.",
+    authority: {
+      name: "root-ca",
+      commonName: "Endorium Root CA",
+      organization: "Endorium",
+      sans: "ca.endorium.local",
+      daysValid: 3650
+    }
+  },
+  {
+    id: "service-mtls",
+    label: "Service mTLS",
+    description: "Issue a short-lived certificate for an internal API or platform service.",
+    mode: "certificate",
+    summary: "Best for mutual TLS and service-to-service trust.",
+    risk: "SANs must match the service DNS names exactly.",
+    recommendation: "Use the currently selected CA and keep the validity close to the service rotation policy.",
+    certificate: {
+      commonName: "api.endorium.local",
+      organization: "Endorium",
+      sans: "api.endorium.local,api.internal.endorium.local",
+      daysValid: 365
+    }
+  },
+  {
+    id: "vpn-edge",
+    label: "VPN edge",
+    description: "Prepare a certificate for an access gateway or remote connectivity endpoint.",
+    mode: "certificate",
+    summary: "Best for gateways that terminate TLS for users or sites.",
+    risk: "The endpoint name should be stable before issuance.",
+    recommendation: "Use the public-facing service name as the common name and list every alternate DNS entry.",
+    certificate: {
+      commonName: "vpn-edge.endorium.local",
+      organization: "Endorium",
+      sans: "vpn-edge.endorium.local,vpn.endorium.local",
+      daysValid: 365
+    }
+  },
+  {
+    id: "incident-response",
+    label: "Incident revocation",
+    description: "Pre-fill a revocation flow when a key is suspected compromised.",
+    mode: "revocation",
+    summary: "Best for emergency response and clean certificate retirement.",
+    risk: "Revocation is final for the target certificate.",
+    recommendation: "Use the serial from the certificate inventory and explain the reason in operator language.",
+    revocation: {
+      serial: "",
+      commonName: "",
+      reason: "cessationOfOperation"
+    }
+  }
+];
+
 function splitSans(value: string) {
   return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
+function splitProfileSans(value: string) {
+  return splitSans(value).join(", ");
 }
 
 const AUTHORITY_STEPS = [
@@ -46,6 +144,7 @@ const REVOCATION_STEPS = [
 ];
 
 export function PkiPage() {
+  const assistant = usePkiAssistant();
   const authorities = usePkiAuthorities();
   const certificates = usePkiCertificates();
   const revocations = useRevocations();
@@ -72,8 +171,10 @@ export function PkiPage() {
     commonName: "",
     reason: "cessationOfOperation"
   });
-  const [wizardMode, setWizardMode] = useState<"authority" | "certificate" | "revocation">("authority");
+  const [wizardMode, setWizardMode] = useState<WizardMode>("authority");
   const [wizardStep, setWizardStep] = useState(0);
+  const [selectedProfileId, setSelectedProfileId] = useState(PKI_PROFILES[0].id);
+  const appliedAssistantProfileId = useRef<string | null>(null);
 
   const activeAuthority = useMemo(() => {
     if (!authorities.data?.length) {
@@ -89,13 +190,118 @@ export function PkiPage() {
     return certificates.data.filter((certificate) => certificate.authorityName === activeAuthority.name);
   }, [activeAuthority, certificates.data]);
 
-  if (authorities.isLoading || certificates.isLoading || revocations.isLoading || !authorities.data || !certificates.data || !revocations.data) {
-    return <div className="text-sm text-slate-400">Loading PKI material...</div>;
+  const activeProfile = useMemo(() => PKI_PROFILES.find((profile) => profile.id === selectedProfileId) ?? PKI_PROFILES[0], [selectedProfileId]);
+
+  useEffect(() => {
+    const recommendedProfileId = assistant.data?.recommendedProfileId;
+    if (!recommendedProfileId || appliedAssistantProfileId.current === recommendedProfileId) {
+      return;
+    }
+
+    const recommendedProfile = PKI_PROFILES.find((profile) => profile.id === recommendedProfileId) ?? PKI_PROFILES[0];
+    appliedAssistantProfileId.current = recommendedProfile.id;
+    setSelectedProfileId(recommendedProfile.id);
+    setWizardMode(recommendedProfile.mode);
+    setWizardStep(0);
+
+    if (recommendedProfile.authority) {
+      setAuthorityForm(recommendedProfile.authority);
+    }
+
+    if (recommendedProfile.certificate) {
+      const preferredAuthority = authorities.data?.[0]?.name ?? certificateForm.authorityName ?? "root-ca";
+      setCertificateForm({
+        authorityName: preferredAuthority,
+        commonName: recommendedProfile.certificate.commonName,
+        organization: recommendedProfile.certificate.organization,
+        sans: recommendedProfile.certificate.sans,
+        daysValid: recommendedProfile.certificate.daysValid
+      });
+      setSelectedAuthority(preferredAuthority);
+    }
+
+    if (recommendedProfile.revocation) {
+      setRevocationForm(recommendedProfile.revocation);
+    }
+  }, [assistant.data?.recommendedProfileId, authorities.data, certificateForm.authorityName]);
+
+  const pkiGuidance = useMemo(() => {
+    if (assistant.data?.insights.length) {
+      return assistant.data.insights.map((insight) => ({
+        label: insight.title,
+        value: insight.detail
+      }));
+    }
+
+    const authorityCount = authorities.data?.length ?? 0;
+    const certificateCount = certificates.data?.length ?? 0;
+    const revocationCount = revocations.data?.length ?? 0;
+
+    if (!authorityCount) {
+      return [
+        { label: "Next move", value: "Create the first root CA" },
+        { label: "Why now", value: "A PKI cannot issue leaf material without a trust anchor." },
+        { label: "Operating rule", value: "Keep the root offline after bootstrap." }
+      ];
+    }
+
+    if (!certificateCount) {
+      return [
+        { label: "Next move", value: "Issue the first service certificate" },
+        { label: "Why now", value: "The PKI is ready for an actual workload identity." },
+        { label: "Operating rule", value: "Match SANs to service DNS names exactly." }
+      ];
+    }
+
+    if (!revocationCount) {
+      return [
+        { label: "Next move", value: "Define the revocation playbook" },
+        { label: "Why now", value: "Operational PKI needs a clean retirement path." },
+        { label: "Operating rule", value: "Track the serial in your incident response notes." }
+      ];
+    }
+
+    return [
+      { label: "Next move", value: "Tune rotation and renewal policy" },
+      { label: "Why now", value: "The main PKI lifecycle is already in motion." },
+      { label: "Operating rule", value: "Prefer shorter-lived leaf certificates over long-lived ones." }
+    ];
+  }, [assistant.data?.insights, authorities.data?.length, certificates.data?.length, revocations.data?.length]);
+
+  if (assistant.isLoading || authorities.isLoading || certificates.isLoading || revocations.isLoading || !authorities.data || !certificates.data || !revocations.data || !assistant.data) {
+    return <div className="text-sm text-slate-500">Chargement de la PKI...</div>;
   }
 
   const authorityName = activeAuthority?.name ?? certificateForm.authorityName;
   const activeSteps = wizardMode === "authority" ? AUTHORITY_STEPS : wizardMode === "certificate" ? CERTIFICATE_STEPS : REVOCATION_STEPS;
   const wizardError = createAuthority.error?.message ?? createCertificate.error?.message ?? createRevocation.error?.message;
+
+  const applyProfile = (profile: PkiProfile) => {
+    setSelectedProfileId(profile.id);
+    setWizardMode(profile.mode);
+    setWizardStep(0);
+
+    if (profile.authority) {
+      setAuthorityForm(profile.authority);
+    }
+
+    if (profile.certificate) {
+      const preferredAuthority = activeAuthority?.name ?? certificateForm.authorityName ?? authorities.data[0]?.name ?? "root-ca";
+      setCertificateForm({
+        authorityName: preferredAuthority,
+        commonName: profile.certificate.commonName,
+        organization: profile.certificate.organization,
+        sans: profile.certificate.sans,
+        daysValid: profile.certificate.daysValid
+      });
+      setSelectedAuthority(preferredAuthority);
+    }
+
+    if (profile.revocation) {
+      setRevocationForm(profile.revocation);
+    }
+  };
+
   const runWizard = () => {
     if (wizardMode === "authority") {
       createAuthority.mutate({ ...authorityForm, sans: splitSans(authorityForm.sans) });
@@ -111,13 +317,49 @@ export function PkiPage() {
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
       <div className="space-y-6">
+        <Panel title="PKI Guidance" eyebrow="Assistant mode">
+          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-slate-700">{assistant.data.headline}</p>
+                <p className="mt-2 text-sm text-slate-500">Choisissez un profil et laissez l'assistant préremplir le chemin le plus utile.</p>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {PKI_PROFILES.map((profile) => (
+                  <button
+                    className={[
+                      "rounded-2xl border px-4 py-3 text-left transition",
+                      selectedProfileId === profile.id ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-slate-300"
+                    ].join(" ")}
+                    key={profile.id}
+                    onClick={() => applyProfile(profile)}
+                    type="button"
+                  >
+                    <p className="font-semibold text-slate-900">{profile.label}</p>
+                    <p className="mt-1 text-sm text-slate-600">{profile.description}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <WizardSummary
+              items={[
+                { label: "Recommended path", value: activeProfile.summary },
+                { label: "Risk to watch", value: activeProfile.risk },
+                { label: "Operator hint", value: activeProfile.recommendation },
+                { label: "Backend mode", value: assistant.data.recommendedMode }
+              ]}
+            />
+          </div>
+        </Panel>
+
         <Panel title="Certificate Authorities" eyebrow="Trust Roots">
           <div className="grid gap-3">
             {authorities.data.length ? authorities.data.map((authority) => (
               <button
                 className={[
                   "rounded-3xl border p-4 text-left transition",
-                  activeAuthority?.name === authority.name ? "border-cyan-300/30 bg-cyan-400/10" : "border-white/8 bg-white/4 hover:border-blue-300/20"
+                  activeAuthority?.name === authority.name ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-slate-300"
                 ].join(" ")}
                 key={authority.name}
                 onClick={() => {
@@ -126,12 +368,12 @@ export function PkiPage() {
                 }}
                 type="button"
               >
-                <p className="font-semibold text-slate-100">{authority.name}</p>
-                <p className="mt-1 text-sm text-slate-400">{authority.commonName}</p>
+                <p className="font-semibold text-slate-900">{authority.name}</p>
+                <p className="mt-1 text-sm text-slate-600">{authority.commonName}</p>
                 <p className="mt-2 break-all text-xs uppercase tracking-[0.16em] text-slate-500">{authority.serial}</p>
               </button>
             )) : (
-              <p className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3 text-sm text-slate-400">
+              <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                 No authority exists yet. Create a root CA to issue leaf certificates.
               </p>
             )}
@@ -141,15 +383,15 @@ export function PkiPage() {
         <Panel title="Issued Certificates" eyebrow="Leaf Material">
           <div className="space-y-3">
             {activeCertificates.map((certificate) => (
-              <article className="rounded-2xl border border-white/8 bg-white/4 px-4 py-4" key={certificate.serial}>
+              <article className="rounded-2xl border border-slate-200 bg-white px-4 py-4" key={certificate.serial}>
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
-                    <p className="font-medium text-slate-100">{certificate.commonName}</p>
-                    <p className="mt-1 text-sm text-slate-400">{certificate.sans.join(", ") || "No SAN"}</p>
+                    <p className="font-medium text-slate-900">{certificate.commonName}</p>
+                    <p className="mt-1 text-sm text-slate-600">{certificate.sans.join(", ") || "No SAN"}</p>
                     <p className="mt-2 break-all text-xs uppercase tracking-[0.18em] text-slate-500">{certificate.serial}</p>
                   </div>
                   <button
-                    className="rounded-full border border-rose-300/20 px-3 py-1 text-xs uppercase tracking-[0.16em] text-rose-100 transition hover:bg-rose-300/10 disabled:opacity-50"
+                    className="rounded-full border border-rose-200 px-3 py-1 text-xs uppercase tracking-[0.16em] text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
                     disabled={certificate.revoked}
                     onClick={() => {
                       setRevocationForm({
@@ -164,9 +406,9 @@ export function PkiPage() {
                   </button>
                 </div>
                 <details className="mt-3">
-                  <summary className="cursor-pointer text-sm text-cyan-100">Show PEM material</summary>
-                  <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-white/8 bg-slate-950/70 p-4 text-xs text-cyan-50">{certificate.certificatePem}</pre>
-                  <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-white/8 bg-slate-950/70 p-4 text-xs text-amber-50">{certificate.privateKeyPem}</pre>
+                  <summary className="cursor-pointer text-sm text-slate-600">Afficher les PEM</summary>
+                  <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">{certificate.certificatePem}</pre>
+                  <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">{certificate.privateKeyPem}</pre>
                 </details>
               </article>
             ))}
@@ -176,10 +418,10 @@ export function PkiPage() {
         <Panel title="Revocation Register" eyebrow="CRL Feed">
           <div className="space-y-3">
             {revocations.data.map((revocation) => (
-              <article className="rounded-2xl border border-white/8 bg-white/4 px-4 py-4" key={revocation.serial}>
-                <p className="font-medium text-slate-100">{revocation.commonName || revocation.serial}</p>
-                <p className="mt-1 break-all text-sm text-slate-400">{revocation.serial}</p>
-                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-rose-200">{revocation.reason}</p>
+              <article className="rounded-2xl border border-slate-200 bg-white px-4 py-4" key={revocation.serial}>
+                <p className="font-medium text-slate-900">{revocation.commonName || revocation.serial}</p>
+                <p className="mt-1 break-all text-sm text-slate-600">{revocation.serial}</p>
+                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-rose-700">{revocation.reason}</p>
               </article>
             ))}
           </div>
@@ -187,6 +429,17 @@ export function PkiPage() {
       </div>
 
       <div className="space-y-6">
+        <Panel title="PKI Copilot Signals" eyebrow="Policy assistant">
+          <div className="grid gap-3 md:grid-cols-3">
+            {pkiGuidance.map((item) => (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3" key={item.label}>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{item.label}</p>
+                <p className="mt-2 text-sm text-slate-700">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
         <Panel title="PKI Task Wizard" eyebrow="Guided actions">
           <div className="mb-4 flex flex-wrap gap-2">
             {[
@@ -215,13 +468,13 @@ export function PkiPage() {
           >
             {wizardMode === "authority" && wizardStep === 0 ? <input className="w-full rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setAuthorityForm((current) => ({ ...current, name: event.target.value }))} placeholder="Authority name" value={authorityForm.name} /> : null}
             {wizardMode === "authority" && wizardStep === 1 ? <div className="grid gap-3"><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setAuthorityForm((current) => ({ ...current, commonName: event.target.value }))} placeholder="Common name" value={authorityForm.commonName} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setAuthorityForm((current) => ({ ...current, organization: event.target.value }))} placeholder="Organization" value={authorityForm.organization} /></div> : null}
-            {wizardMode === "authority" && wizardStep === 2 ? <AdvancedSection><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setAuthorityForm((current) => ({ ...current, sans: event.target.value }))} placeholder="SANs" value={authorityForm.sans} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" min={1} onChange={(event) => setAuthorityForm((current) => ({ ...current, daysValid: Number(event.target.value) }))} type="number" value={authorityForm.daysValid} /></AdvancedSection> : null}
-            {wizardMode === "authority" && wizardStep === 3 ? <WizardSummary items={[{ label: "Authority", value: authorityForm.name }, { label: "Subject", value: `${authorityForm.organization} / ${authorityForm.commonName}` }, { label: "SANs", value: authorityForm.sans }, { label: "Validity", value: `${authorityForm.daysValid} days` }]} /> : null}
+            {wizardMode === "authority" && wizardStep === 2 ? <AdvancedSection title="Authority policy"><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setAuthorityForm((current) => ({ ...current, sans: event.target.value }))} placeholder="SANs" value={authorityForm.sans} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" min={1} onChange={(event) => setAuthorityForm((current) => ({ ...current, daysValid: Number(event.target.value) }))} type="number" value={authorityForm.daysValid} /></AdvancedSection> : null}
+            {wizardMode === "authority" && wizardStep === 3 ? <WizardSummary items={[{ label: "Authority", value: authorityForm.name }, { label: "Subject", value: `${authorityForm.organization} / ${authorityForm.commonName}` }, { label: "SANs", value: splitProfileSans(authorityForm.sans) }, { label: "Validity", value: `${authorityForm.daysValid} days` }]} /> : null}
 
             {wizardMode === "certificate" && wizardStep === 0 ? <select className="w-full rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, authorityName: event.target.value }))} value={certificateForm.authorityName || authorityName}><option value="">Select authority</option>{authorities.data.map((authority) => <option key={authority.name} value={authority.name}>{authority.name}</option>)}</select> : null}
             {wizardMode === "certificate" && wizardStep === 1 ? <div className="grid gap-3"><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, commonName: event.target.value }))} placeholder="Common name" value={certificateForm.commonName} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, organization: event.target.value }))} placeholder="Organization" value={certificateForm.organization} /></div> : null}
-            {wizardMode === "certificate" && wizardStep === 2 ? <AdvancedSection><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, sans: event.target.value }))} placeholder="SANs" value={certificateForm.sans} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" min={1} onChange={(event) => setCertificateForm((current) => ({ ...current, daysValid: Number(event.target.value) }))} type="number" value={certificateForm.daysValid} /></AdvancedSection> : null}
-            {wizardMode === "certificate" && wizardStep === 3 ? <WizardSummary items={[{ label: "Authority", value: certificateForm.authorityName || authorityName }, { label: "Subject", value: certificateForm.commonName }, { label: "SANs", value: certificateForm.sans }, { label: "Validity", value: `${certificateForm.daysValid} days` }]} /> : null}
+            {wizardMode === "certificate" && wizardStep === 2 ? <AdvancedSection title="Certificate policy"><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, sans: event.target.value }))} placeholder="SANs" value={certificateForm.sans} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" min={1} onChange={(event) => setCertificateForm((current) => ({ ...current, daysValid: Number(event.target.value) }))} type="number" value={certificateForm.daysValid} /></AdvancedSection> : null}
+            {wizardMode === "certificate" && wizardStep === 3 ? <WizardSummary items={[{ label: "Authority", value: certificateForm.authorityName || authorityName }, { label: "Subject", value: certificateForm.commonName }, { label: "SANs", value: splitProfileSans(certificateForm.sans) }, { label: "Validity", value: `${certificateForm.daysValid} days` }]} /> : null}
 
             {wizardMode === "revocation" && wizardStep === 0 ? <div className="grid gap-3"><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setRevocationForm((current) => ({ ...current, serial: event.target.value }))} placeholder="Serial" value={revocationForm.serial} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setRevocationForm((current) => ({ ...current, commonName: event.target.value }))} placeholder="Common name" value={revocationForm.commonName} /></div> : null}
             {wizardMode === "revocation" && wizardStep === 1 ? <select className="w-full rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setRevocationForm((current) => ({ ...current, reason: event.target.value }))} value={revocationForm.reason}>{REVOCATION_REASONS.map((reason) => <option key={reason}>{reason}</option>)}</select> : null}

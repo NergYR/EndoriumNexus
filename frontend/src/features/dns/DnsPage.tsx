@@ -368,17 +368,17 @@ export function DnsPage() {
   };
 
   if (zones.isLoading || !zones.data) {
-    return <div className="text-sm text-slate-400">Loading DNS zones...</div>;
+    return <div className="text-sm text-slate-500">Chargement du DNS...</div>;
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-white/8 bg-black/15 px-4 py-3 md:flex-row md:items-center">
-        <p className="text-sm text-slate-400">
+      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 md:flex-row md:items-center">
+        <p className="text-sm text-slate-600">
           Modifications are saved immediately but require a service restart to take effect.
         </p>
         <button
-          className="rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/5 disabled:opacity-60"
+          className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
           onClick={() => restartService.mutate()}
           type="button"
           disabled={restartService.isPending}
@@ -396,8 +396,8 @@ export function DnsPage() {
                 className={[
                   "rounded-2xl border px-4 py-3 text-left transition",
                   activeZone?.name === zone.name
-                    ? "border-cyan-300/30 bg-cyan-400/10"
-                    : "border-white/8 bg-white/4 hover:border-blue-300/20"
+                    ? "border-blue-200 bg-blue-50"
+                    : "border-slate-200 bg-white hover:border-slate-300"
                 ].join(" ")}
                 key={zone.name}
                 onClick={() => {
@@ -406,36 +406,36 @@ export function DnsPage() {
                 }}
                 type="button"
               >
-                <p className="font-medium text-slate-100">{zone.name}</p>
-                <p className="mt-1 text-sm text-slate-400">{zone.records.length} records</p>
+                <p className="font-medium text-slate-900">{zone.name}</p>
+                <p className="mt-1 text-sm text-slate-600">{zone.records.length} enregistrements</p>
               </button>
             ))}
           </div>
 
           {!zones.data.length ? (
-            <p className="mt-5 rounded-2xl border border-white/8 bg-black/15 px-4 py-3 text-sm text-slate-400">
+            <p className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               No DNS zone configured yet. Create one to start publishing records.
             </p>
           ) : null}
 
           {activeZone ? (
             <div className="mt-5 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-black/15 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
                 <div>
                   <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Selected zone</p>
-                  <p className="font-medium text-slate-100">{selectedZoneLabel}</p>
+                  <p className="font-medium text-slate-900">{selectedZoneLabel}</p>
                 </div>
                 <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Serial {activeZone.serial}</span>
               </div>
 
               {activeRecords.map((record, index) => (
-                <div className="rounded-2xl border border-white/8 bg-black/15 px-4 py-3" key={`${record.name}-${record.type}-${index}`}>
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3" key={`${record.name}-${record.type}-${index}`}>
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <p className="font-medium text-slate-100">
+                      <p className="font-medium text-slate-900">
                         {record.name} <span className="text-slate-500">{record.type}</span>
                       </p>
-                      <p className="mt-1 break-all text-sm text-slate-400">{record.value}</p>
+                      <p className="mt-1 break-all text-sm text-slate-600">{record.value}</p>
                       <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-500">
                         TTL {record.ttl} {record.priority ? `- Priority ${record.priority}` : ""}
                         {record.port ? ` - Port ${record.port}` : ""}
@@ -443,7 +443,7 @@ export function DnsPage() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button
-                        className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-200 transition hover:border-cyan-300/30 hover:bg-cyan-300/10"
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-50"
                         onClick={() => beginEditRecord(index)}
                         type="button"
                       >
@@ -498,7 +498,7 @@ export function DnsPage() {
               }}
             >
               <input
-                className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setZoneForm({ name: event.target.value })}
                 placeholder="Zone name (ex: endorium.local)"
                 value={zoneForm.name}
@@ -535,7 +535,7 @@ export function DnsPage() {
           </Panel>
 
           <Panel title="Zone Renderer" eyebrow="BIND-Compatible">
-            <pre className="overflow-x-auto rounded-2xl border border-white/8 bg-slate-950/70 p-4 text-sm text-cyan-50">
+            <pre className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
               {zoneRender.data?.text ?? "Select a zone to render"}
             </pre>
           </Panel>
@@ -574,7 +574,7 @@ export function DnsPage() {
               <label className="grid gap-2">
                 <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Record type</span>
                 <select
-                  className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                  className="field rounded-2xl px-4 py-3 outline-none"
                   onChange={(event) => setRecordType(event.target.value)}
                   value={recordForm.type}
                 >
@@ -591,7 +591,7 @@ export function DnsPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Name</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => {
                       setRecordError(null);
                       setRecordForm((current) => ({ ...current, name: event.target.value }));
@@ -603,7 +603,7 @@ export function DnsPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Class</span>
                   <select
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => {
                       setRecordError(null);
                       setRecordForm((current) => ({ ...current, class: event.target.value }));
@@ -621,7 +621,7 @@ export function DnsPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">{recordConfig.valueLabel}</span>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 font-mono text-sm outline-none"
+                    className="field rounded-2xl px-4 py-3 font-mono text-sm outline-none"
                     onChange={(event) => {
                       setRecordError(null);
                       setRecordForm((current) => ({ ...current, value: event.target.value }));
@@ -634,7 +634,7 @@ export function DnsPage() {
                 <label className="grid gap-2">
                   <span className="text-xs uppercase tracking-[0.18em] text-slate-500">TTL</span>
                   <select
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => {
                       setRecordError(null);
                       setRecordForm((current) => ({ ...current, ttl: Number(event.target.value) }));
@@ -651,7 +651,7 @@ export function DnsPage() {
                     ) : null}
                   </select>
                   <input
-                    className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                    className="field rounded-2xl px-4 py-3 outline-none"
                     min={1}
                     onChange={(event) => {
                       setRecordError(null);
@@ -664,12 +664,12 @@ export function DnsPage() {
               </div>
 
               {recordConfig.showPriority || recordConfig.showWeight || recordConfig.showPort || recordConfig.showFlags ? (
-                <div className="grid gap-3 rounded-2xl border border-white/8 bg-black/15 p-4 md:grid-cols-2">
+                <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
                   {recordConfig.showPriority ? (
                     <label className="grid gap-2">
                       <span className="text-xs uppercase tracking-[0.18em] text-slate-500">{recordConfig.priorityLabel ?? "Priority"}</span>
                       <input
-                        className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                        className="field rounded-2xl px-4 py-3 outline-none"
                         min={0}
                         onChange={(event) => {
                           setRecordError(null);
@@ -684,7 +684,7 @@ export function DnsPage() {
                     <label className="grid gap-2">
                       <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Weight</span>
                       <input
-                        className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                        className="field rounded-2xl px-4 py-3 outline-none"
                         min={0}
                         onChange={(event) => {
                           setRecordError(null);
@@ -699,7 +699,7 @@ export function DnsPage() {
                     <label className="grid gap-2">
                       <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Port</span>
                       <input
-                        className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                        className="field rounded-2xl px-4 py-3 outline-none"
                         max={65535}
                         min={1}
                         onChange={(event) => {
@@ -715,7 +715,7 @@ export function DnsPage() {
                     <label className="grid gap-2">
                       <span className="text-xs uppercase tracking-[0.18em] text-slate-500">{recordConfig.flagsLabel ?? "Flags"}</span>
                       <input
-                        className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none"
+                        className="field rounded-2xl px-4 py-3 outline-none"
                         onChange={(event) => {
                           setRecordError(null);
                           setRecordForm((current) => ({ ...current, flags: event.target.value }));
@@ -728,9 +728,9 @@ export function DnsPage() {
                 </div>
               ) : null}
 
-              <div className="rounded-2xl border border-white/8 bg-slate-950/70 px-4 py-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Preview</p>
-                <p className="mt-2 break-all font-mono text-sm text-cyan-50">{renderRecordPreview(recordForm)}</p>
+                <p className="mt-2 break-all font-mono text-sm text-slate-700">{renderRecordPreview(recordForm)}</p>
               </div>
 
               <div className="flex flex-wrap gap-3 pt-1">
@@ -739,7 +739,7 @@ export function DnsPage() {
                 </button>
                 {editingRecordIndex !== null ? (
                   <button
-                    className="rounded-2xl border border-white/10 px-4 py-3 font-medium text-slate-200 transition hover:bg-white/5"
+                    className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-600 transition hover:bg-slate-50"
                     onClick={() => {
                       setEditingRecordIndex(null);
                       setRecordForm(defaultRecordForm());

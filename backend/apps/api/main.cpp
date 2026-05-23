@@ -6,7 +6,6 @@
 #include <json/json.h>
 #include <trantor/net/EventLoop.h>
 
-#include <algorithm>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
@@ -49,74 +48,6 @@ Json::Value to_json(const nexus::core::DirectoryObject& object) {
     for (const auto& [key, value] : object.attributes) {
         node["attributes"][key] = value;
     }
-    return node;
-}
-
-Json::Value to_ad_attribute_value(const std::string& key, const std::string& value) {
-    Json::Value node(Json::objectValue);
-    if (key == "objectSid") {
-        node["type"] = "sid";
-    } else if (key == "objectGUID") {
-        node["type"] = "guid";
-    } else if (key == "userAccountControl" || key == "primaryGroupID" || key == "groupType") {
-        node["type"] = "int";
-    } else if (key == "servicePrincipalName" || key == "member" || key == "memberOf") {
-        node["type"] = "string[]";
-    } else {
-        node["type"] = "string";
-    }
-
-    if (node["type"].asString() == "string[]") {
-        node["value"] = Json::arrayValue;
-        std::stringstream stream(value);
-        std::string entry;
-        while (std::getline(stream, entry, ';')) {
-            if (!entry.empty()) {
-                node["value"].append(entry);
-            }
-        }
-    } else {
-        node["value"] = value;
-    }
-    return node;
-}
-
-Json::Value to_ad_json(const nexus::core::DirectoryObject& object) {
-    Json::Value node(Json::objectValue);
-    node["dn"] = object.dn;
-    node["parentDn"] = object.parent_dn;
-    node["kind"] = object.kind;
-    node["objectClasses"] = Json::arrayValue;
-    for (const auto& object_class : object.object_classes) {
-        node["objectClasses"].append(object_class);
-    }
-    node["attributes"] = Json::objectValue;
-    for (const auto& [key, value] : object.attributes) {
-        if (key == "userPasswordHash") {
-            continue;
-        }
-        node["attributes"][key] = to_ad_attribute_value(key, value);
-    }
-    return node;
-}
-
-Json::Value to_json(const nexus::core::ActiveDirectoryDomain& domain) {
-    Json::Value node(Json::objectValue);
-    node["dnsName"] = domain.dns_name;
-    node["netbiosName"] = domain.netbios_name;
-    node["realm"] = domain.realm;
-    node["baseDn"] = domain.base_dn;
-    node["domainSid"] = domain.domain_sid;
-    node["createdAt"] = domain.created_at;
-    return node;
-}
-
-Json::Value to_json(const nexus::core::ActiveDirectoryReadinessItem& item) {
-    Json::Value node(Json::objectValue);
-    node["id"] = item.id;
-    node["label"] = item.label;
-    node["ready"] = item.ready;
-    node["detail"] = item.detail;
     return node;
 }
 
@@ -184,6 +115,31 @@ Json::Value to_json(const nexus::core::PkiRevocation& revocation) {
     node["commonName"] = revocation.common_name;
     node["reason"] = revocation.reason;
     node["revokedAt"] = revocation.revoked_at;
+    return node;
+}
+
+Json::Value to_json(const nexus::core::PkiInsight& insight) {
+    Json::Value node(Json::objectValue);
+    node["category"] = insight.category;
+    node["title"] = insight.title;
+    node["detail"] = insight.detail;
+    node["severity"] = insight.severity;
+    return node;
+}
+
+Json::Value to_json(const nexus::core::PkiAssistantSnapshot& assistant) {
+    Json::Value node(Json::objectValue);
+    node["recommendedMode"] = assistant.recommended_mode;
+    node["recommendedProfileId"] = assistant.recommended_profile_id;
+    node["headline"] = assistant.headline;
+    node["authorityCount"] = Json::UInt64(assistant.authority_count);
+    node["certificateCount"] = Json::UInt64(assistant.certificate_count);
+    node["revocationCount"] = Json::UInt64(assistant.revocation_count);
+    node["leafDaysValid"] = assistant.leaf_days_valid;
+    node["insights"] = Json::arrayValue;
+    for (const auto& insight : assistant.insights) {
+        node["insights"].append(to_json(insight));
+    }
     return node;
 }
 
@@ -264,21 +220,12 @@ Json::Value to_json(const nexus::core::Config& config) {
     node["ports"]["ldap"] = config.ldap.port;
     node["ports"]["ldaps"] = config.ldaps.port;
     node["ports"]["kerberos"] = config.kerberos.port;
-    node["ports"]["kpasswd"] = config.kpasswd.port;
-    node["ports"]["globalCatalog"] = config.global_catalog.port;
-    node["ports"]["rpc"] = config.rpc_endpoint_mapper.port;
-    node["ports"]["smb"] = config.smb.port;
     node["ports"]["dnsTcp"] = config.dns_tcp.port;
     node["ports"]["dnsUdp"] = config.dns_udp.port;
     node["ports"]["dhcp"] = config.dhcp.port;
     node["directory"]["baseDn"] = config.directory.base_dn;
     node["directory"]["organization"] = config.directory.organization;
     node["directory"]["realm"] = config.directory.realm;
-    node["directory"]["adPortProfile"] = config.directory.ad_port_profile;
-    node["directory"]["siteName"] = config.directory.site_name;
-    node["directory"]["domainControllerHost"] = config.directory.domain_controller_host;
-    node["directory"]["domainControllerAddress"] = config.directory.domain_controller_address;
-    node["directory"]["keyEncryptionKeyFile"] = config.directory.key_encryption_key_file;
     node["dns"]["primaryNs"] = config.dns.primary_ns;
     node["dns"]["adminMailbox"] = config.dns.admin_mailbox;
     node["dns"]["defaultTtl"] = Json::UInt(config.dns.default_ttl);
@@ -327,27 +274,9 @@ nexus::core::Config config_from_json(const nexus::core::Config& current, const J
     updated.ldap.port = read_port("ldapPort", current.ldap.port);
     updated.ldaps.port = read_port("ldapsPort", current.ldaps.port);
     updated.kerberos.port = read_port("kerberosPort", current.kerberos.port);
-    updated.kpasswd.port = read_port("kpasswdPort", current.kpasswd.port);
-    updated.global_catalog.port = read_port("globalCatalogPort", current.global_catalog.port);
-    updated.rpc_endpoint_mapper.port = read_port("rpcPort", current.rpc_endpoint_mapper.port);
-    updated.smb.port = read_port("smbPort", current.smb.port);
     updated.dns_tcp.port = read_port("dnsTcpPort", current.dns_tcp.port);
     updated.dns_udp.port = read_port("dnsUdpPort", current.dns_udp.port);
     updated.dhcp.port = read_port("dhcpPort", current.dhcp.port);
-    if (body.isMember("ports") && body["ports"].isObject()) {
-        const auto& ports = body["ports"];
-        if (ports.isMember("http")) updated.http.port = ports["http"].asInt();
-        if (ports.isMember("ldap")) updated.ldap.port = ports["ldap"].asInt();
-        if (ports.isMember("ldaps")) updated.ldaps.port = ports["ldaps"].asInt();
-        if (ports.isMember("kerberos")) updated.kerberos.port = ports["kerberos"].asInt();
-        if (ports.isMember("kpasswd")) updated.kpasswd.port = ports["kpasswd"].asInt();
-        if (ports.isMember("globalCatalog")) updated.global_catalog.port = ports["globalCatalog"].asInt();
-        if (ports.isMember("rpc")) updated.rpc_endpoint_mapper.port = ports["rpc"].asInt();
-        if (ports.isMember("smb")) updated.smb.port = ports["smb"].asInt();
-        if (ports.isMember("dnsTcp")) updated.dns_tcp.port = ports["dnsTcp"].asInt();
-        if (ports.isMember("dnsUdp")) updated.dns_udp.port = ports["dnsUdp"].asInt();
-        if (ports.isMember("dhcp")) updated.dhcp.port = ports["dhcp"].asInt();
-    }
     if (body.isMember("directory") && body["directory"].isObject()) {
         const auto& directory = body["directory"];
         if (directory.isMember("baseDn")) {
@@ -358,21 +287,6 @@ nexus::core::Config config_from_json(const nexus::core::Config& current, const J
         }
         if (directory.isMember("realm")) {
             updated.directory.realm = directory["realm"].asString();
-        }
-        if (directory.isMember("adPortProfile")) {
-            updated.directory.ad_port_profile = directory["adPortProfile"].asString();
-        }
-        if (directory.isMember("siteName")) {
-            updated.directory.site_name = directory["siteName"].asString();
-        }
-        if (directory.isMember("domainControllerHost")) {
-            updated.directory.domain_controller_host = directory["domainControllerHost"].asString();
-        }
-        if (directory.isMember("domainControllerAddress")) {
-            updated.directory.domain_controller_address = directory["domainControllerAddress"].asString();
-        }
-        if (directory.isMember("keyEncryptionKeyFile")) {
-            updated.directory.key_encryption_key_file = directory["keyEncryptionKeyFile"].asString();
         }
     }
     if (body.isMember("dns") && body["dns"].isObject()) {
@@ -843,159 +757,6 @@ int main() {
             callback(response);
         },
         {drogon::Get});
-
-    drogon::app().registerHandler(
-        "/api/v1/ad/domain",
-        [state](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            const auto domain = state->active_directory_domain();
-            if (!domain.has_value()) {
-                respond_json(drogon::k404NotFound, error_json("active directory domain is not configured"), std::move(callback));
-                return;
-            }
-            respond_json(drogon::k200OK, to_json(*domain), std::move(callback));
-        },
-        {drogon::Get});
-
-    drogon::app().registerHandler(
-        "/api/v1/ad/domain",
-        [state](const drogon::HttpRequestPtr& request, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            std::string actor;
-            if (!state->authorize_mutation(request->getCookie("nexus_session"), request->getHeader("X-CSRF-Token"), &actor, nullptr)) {
-                respond_json(drogon::k401Unauthorized, error_json("mutation requires a valid session and csrf token"), std::move(callback));
-                return;
-            }
-            auto body = request->getJsonObject();
-            if (body == nullptr ||
-                !body->isMember("dnsName") ||
-                !body->isMember("netbiosName") ||
-                !body->isMember("adminSamAccount") ||
-                !body->isMember("adminPassword") ||
-                !body->isMember("domainControllerHost") ||
-                !body->isMember("domainControllerAddress")) {
-                respond_json(drogon::k400BadRequest, error_json("active directory domain payload is incomplete"), std::move(callback));
-                return;
-            }
-
-            nexus::core::ActiveDirectoryDomain domain;
-            domain.dns_name = (*body)["dnsName"].asString();
-            domain.netbios_name = (*body)["netbiosName"].asString();
-            domain.realm = body->isMember("realm") ? (*body)["realm"].asString() : "";
-            domain.base_dn = body->isMember("baseDn") ? (*body)["baseDn"].asString() : "";
-            if (!state->create_active_directory_domain(
-                    domain,
-                    (*body)["adminSamAccount"].asString(),
-                    body->isMember("adminDisplayName") ? (*body)["adminDisplayName"].asString() : "Administrator",
-                    (*body)["adminPassword"].asString(),
-                    (*body)["domainControllerHost"].asString(),
-                    (*body)["domainControllerAddress"].asString(),
-                    actor)) {
-                respond_json(drogon::k409Conflict, error_json("active directory domain already exists or payload is invalid"), std::move(callback));
-                return;
-            }
-
-            const auto created = state->active_directory_domain();
-            Json::Value payload(Json::objectValue);
-            payload["ok"] = true;
-            if (created.has_value()) {
-                payload["domain"] = to_json(*created);
-            }
-            respond_json(drogon::k201Created, std::move(payload), std::move(callback));
-        },
-        {drogon::Post});
-
-    drogon::app().registerHandler(
-        "/api/v1/ad/readiness",
-        [state](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            Json::Value payload(Json::objectValue);
-            payload["ready"] = true;
-            payload["items"] = Json::arrayValue;
-            for (const auto& item : state->active_directory_readiness()) {
-                payload["items"].append(to_json(item));
-                if (!item.ready) {
-                    payload["ready"] = false;
-                }
-            }
-            respond_json(drogon::k200OK, std::move(payload), std::move(callback));
-        },
-        {drogon::Get});
-
-    drogon::app().registerHandler(
-        "/api/v1/ad/join-guide",
-        [state](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            respond_json(drogon::k200OK, state->active_directory_join_guide(), std::move(callback));
-        },
-        {drogon::Get});
-
-    drogon::app().registerHandler(
-        "/api/v1/ad/objects",
-        [state](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            Json::Value payload(Json::arrayValue);
-            for (const auto& object : state->directory_objects()) {
-                payload.append(to_ad_json(object));
-            }
-            respond_json(drogon::k200OK, std::move(payload), std::move(callback));
-        },
-        {drogon::Get});
-
-    auto directory_filter_handler =
-        [state](const std::string& kind, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            Json::Value payload(Json::arrayValue);
-            for (const auto& object : state->directory_objects()) {
-                if (object.kind == kind) {
-                    payload.append(to_json(object));
-                }
-            }
-            respond_json(drogon::k200OK, std::move(payload), std::move(callback));
-        };
-
-    drogon::app().registerHandler(
-        "/api/v1/ad/users",
-        [directory_filter_handler](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            directory_filter_handler("user", std::move(callback));
-        },
-        {drogon::Get});
-
-    drogon::app().registerHandler(
-        "/api/v1/ad/groups",
-        [directory_filter_handler](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            directory_filter_handler("group", std::move(callback));
-        },
-        {drogon::Get});
-
-    drogon::app().registerHandler(
-        "/api/v1/ad/computers",
-        [directory_filter_handler](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            directory_filter_handler("computer", std::move(callback));
-        },
-        {drogon::Get});
-
-    drogon::app().registerHandler(
-        "/api/v1/ad/password-reset",
-        [state](const drogon::HttpRequestPtr& request, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            std::string actor;
-            if (!state->authorize_mutation(request->getCookie("nexus_session"), request->getHeader("X-CSRF-Token"), &actor, nullptr)) {
-                respond_json(drogon::k401Unauthorized, error_json("mutation requires a valid session and csrf token"), std::move(callback));
-                return;
-            }
-            auto body = request->getJsonObject();
-            if (body == nullptr || !body->isMember("dn") || !body->isMember("password")) {
-                respond_json(drogon::k400BadRequest, error_json("password reset payload is incomplete"), std::move(callback));
-                return;
-            }
-            const auto dn = (*body)["dn"].asString();
-            const auto objects = state->directory_objects();
-            const auto it = std::find_if(objects.begin(), objects.end(), [&](const auto& object) {
-                return object.dn == dn;
-            });
-            if (it == objects.end() || !state->update_directory_object(dn, *it, (*body)["password"].asString(), actor)) {
-                respond_json(drogon::k404NotFound, error_json("directory object not found"), std::move(callback));
-                return;
-            }
-            Json::Value payload(Json::objectValue);
-            payload["ok"] = true;
-            respond_json(drogon::k200OK, std::move(payload), std::move(callback));
-        },
-        {drogon::Post});
 
     drogon::app().registerHandler(
         "/api/v1/directory/objects",
@@ -1527,6 +1288,13 @@ int main() {
             respond_json(drogon::k201Created, std::move(payload), std::move(callback));
         },
         {drogon::Post});
+
+    drogon::app().registerHandler(
+        "/api/v1/pki/assistant",
+        [state](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            respond_json(drogon::k200OK, to_json(state->pki_assistant()), std::move(callback));
+        },
+        {drogon::Get});
 
     drogon::app().registerHandler(
         "/api/v1/repos",
