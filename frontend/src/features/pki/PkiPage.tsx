@@ -33,6 +33,7 @@ const AUTHORITY_STEPS = [
 ];
 
 const CERTIFICATE_STEPS = [
+  { id: "profile", title: "Usage", description: "Select a guided profile for this certificate." },
   { id: "authority", title: "Authority", description: "Select the CA that signs this certificate." },
   { id: "subject", title: "Subject", description: "Set the service name users know." },
   { id: "advanced", title: "Advanced", description: "Set SANs and validity." },
@@ -44,6 +45,52 @@ const REVOCATION_STEPS = [
   { id: "reason", title: "Reason", description: "Choose why it is revoked." },
   { id: "review", title: "Review", description: "Publish the revocation." }
 ];
+
+const CERTIFICATE_PROFILES = [
+  {
+    id: "web-gateway",
+    label: "Web Gateway",
+    summary: "HTTPS endpoints, reverse proxies, portals.",
+    commonName: "gateway.endorium.local",
+    sans: "gateway.endorium.local,api.endorium.local",
+    daysValid: 365
+  },
+  {
+    id: "vpn-edge",
+    label: "VPN Gateway",
+    summary: "IPsec/OpenVPN entry points and concentrators.",
+    commonName: "vpn.endorium.local",
+    sans: "vpn.endorium.local",
+    daysValid: 397
+  },
+  {
+    id: "service-mesh",
+    label: "Service Identity",
+    summary: "mTLS identity between internal workloads.",
+    commonName: "svc.identity.endorium.local",
+    sans: "svc.identity.endorium.local",
+    daysValid: 180
+  },
+  {
+    id: "device-client",
+    label: "Device / User Client",
+    summary: "Wi-Fi, workstation or managed device auth.",
+    commonName: "client.endorium.local",
+    sans: "client.endorium.local",
+    daysValid: 90
+  }
+] as const;
+
+type CertificateProfileId = typeof CERTIFICATE_PROFILES[number]["id"];
+
+type CertificateForm = {
+  authorityName: string;
+  profileId: CertificateProfileId;
+  commonName: string;
+  organization: string;
+  sans: string;
+  daysValid: number;
+};
 
 export function PkiPage() {
   const authorities = usePkiAuthorities();
@@ -60,8 +107,9 @@ export function PkiPage() {
     sans: "ca.endorium.local",
     daysValid: 3650
   });
-  const [certificateForm, setCertificateForm] = useState({
+  const [certificateForm, setCertificateForm] = useState<CertificateForm>({
     authorityName: "",
+    profileId: CERTIFICATE_PROFILES[0].id,
     commonName: "vpn-edge.endorium.local",
     organization: "Endorium",
     sans: "vpn-edge.endorium.local",
@@ -102,7 +150,9 @@ export function PkiPage() {
       return;
     }
     if (wizardMode === "certificate") {
-      createCertificate.mutate({ ...certificateForm, authorityName: certificateForm.authorityName || authorityName, sans: splitSans(certificateForm.sans) });
+      const { profileId, ...certificatePayload } = certificateForm;
+      void profileId;
+      createCertificate.mutate({ ...certificatePayload, authorityName: certificateForm.authorityName || authorityName, sans: splitSans(certificateForm.sans) });
       return;
     }
     createRevocation.mutate(revocationForm);
@@ -218,15 +268,53 @@ export function PkiPage() {
             {wizardMode === "authority" && wizardStep === 2 ? <AdvancedSection><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setAuthorityForm((current) => ({ ...current, sans: event.target.value }))} placeholder="SANs" value={authorityForm.sans} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" min={1} onChange={(event) => setAuthorityForm((current) => ({ ...current, daysValid: Number(event.target.value) }))} type="number" value={authorityForm.daysValid} /></AdvancedSection> : null}
             {wizardMode === "authority" && wizardStep === 3 ? <WizardSummary items={[{ label: "Authority", value: authorityForm.name }, { label: "Subject", value: `${authorityForm.organization} / ${authorityForm.commonName}` }, { label: "SANs", value: authorityForm.sans }, { label: "Validity", value: `${authorityForm.daysValid} days` }]} /> : null}
 
-            {wizardMode === "certificate" && wizardStep === 0 ? <select className="w-full rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, authorityName: event.target.value }))} value={certificateForm.authorityName || authorityName}><option value="">Select authority</option>{authorities.data.map((authority) => <option key={authority.name} value={authority.name}>{authority.name}</option>)}</select> : null}
-            {wizardMode === "certificate" && wizardStep === 1 ? <div className="grid gap-3"><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, commonName: event.target.value }))} placeholder="Common name" value={certificateForm.commonName} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, organization: event.target.value }))} placeholder="Organization" value={certificateForm.organization} /></div> : null}
-            {wizardMode === "certificate" && wizardStep === 2 ? <AdvancedSection><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, sans: event.target.value }))} placeholder="SANs" value={certificateForm.sans} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" min={1} onChange={(event) => setCertificateForm((current) => ({ ...current, daysValid: Number(event.target.value) }))} type="number" value={certificateForm.daysValid} /></AdvancedSection> : null}
-            {wizardMode === "certificate" && wizardStep === 3 ? <WizardSummary items={[{ label: "Authority", value: certificateForm.authorityName || authorityName }, { label: "Subject", value: certificateForm.commonName }, { label: "SANs", value: certificateForm.sans }, { label: "Validity", value: `${certificateForm.daysValid} days` }]} /> : null}
+            {wizardMode === "certificate" && wizardStep === 0 ? (
+              <div className="grid gap-3">
+                {CERTIFICATE_PROFILES.map((profile) => (
+                  <button
+                    className={[
+                      "rounded-2xl border px-4 py-3 text-left transition",
+                      certificateForm.profileId === profile.id ? "border-cyan-300/30 bg-cyan-300/10" : "border-white/8 bg-white/4 hover:border-blue-300/20"
+                    ].join(" ")}
+                    key={profile.id}
+                    onClick={() => setCertificateForm((current) => ({
+                      ...current,
+                      profileId: profile.id,
+                      commonName: profile.commonName,
+                      sans: profile.sans,
+                      daysValid: profile.daysValid
+                    }))}
+                    type="button"
+                  >
+                    <p className="text-sm font-medium text-slate-100">{profile.label}</p>
+                    <p className="mt-1 text-xs text-slate-400">{profile.summary}</p>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {wizardMode === "certificate" && wizardStep === 1 ? <select className="w-full rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, authorityName: event.target.value }))} value={certificateForm.authorityName || authorityName}><option value="">Select authority</option>{authorities.data.map((authority) => <option key={authority.name} value={authority.name}>{authority.name}</option>)}</select> : null}
+            {wizardMode === "certificate" && wizardStep === 2 ? <div className="grid gap-3"><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, commonName: event.target.value }))} placeholder="Common name" value={certificateForm.commonName} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, organization: event.target.value }))} placeholder="Organization" value={certificateForm.organization} /></div> : null}
+            {wizardMode === "certificate" && wizardStep === 3 ? <AdvancedSection><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setCertificateForm((current) => ({ ...current, sans: event.target.value }))} placeholder="SANs" value={certificateForm.sans} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" min={1} onChange={(event) => setCertificateForm((current) => ({ ...current, daysValid: Number(event.target.value) }))} type="number" value={certificateForm.daysValid} /></AdvancedSection> : null}
+            {wizardMode === "certificate" && wizardStep === 4 ? <WizardSummary items={[{ label: "Usage", value: CERTIFICATE_PROFILES.find((profile) => profile.id === certificateForm.profileId)?.label ?? "Custom" }, { label: "Authority", value: certificateForm.authorityName || authorityName }, { label: "Subject", value: certificateForm.commonName }, { label: "SANs", value: certificateForm.sans }, { label: "Validity", value: `${certificateForm.daysValid} days` }]} /> : null}
 
             {wizardMode === "revocation" && wizardStep === 0 ? <div className="grid gap-3"><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setRevocationForm((current) => ({ ...current, serial: event.target.value }))} placeholder="Serial" value={revocationForm.serial} /><input className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setRevocationForm((current) => ({ ...current, commonName: event.target.value }))} placeholder="Common name" value={revocationForm.commonName} /></div> : null}
             {wizardMode === "revocation" && wizardStep === 1 ? <select className="w-full rounded-2xl border border-white/8 bg-black/20 px-4 py-3 outline-none" onChange={(event) => setRevocationForm((current) => ({ ...current, reason: event.target.value }))} value={revocationForm.reason}>{REVOCATION_REASONS.map((reason) => <option key={reason}>{reason}</option>)}</select> : null}
             {wizardMode === "revocation" && wizardStep === 2 ? <WizardSummary items={[{ label: "Serial", value: revocationForm.serial }, { label: "Common name", value: revocationForm.commonName || "Not provided" }, { label: "Reason", value: revocationForm.reason }]} /> : null}
           </Wizard>
+        </Panel>
+
+        <Panel title="PKI Playbooks" eyebrow="Operational companion">
+          <div className="grid gap-3">
+            {CERTIFICATE_PROFILES.map((profile) => (
+              <article className="rounded-2xl border border-white/8 bg-white/4 px-4 py-3" key={profile.id}>
+                <p className="text-sm font-medium text-slate-100">{profile.label}</p>
+                <p className="mt-1 text-xs text-slate-400">{profile.summary}</p>
+                <p className="mt-2 text-xs uppercase tracking-[0.16em] text-cyan-100/80">
+                  Suggested validity: {profile.daysValid} days
+                </p>
+              </article>
+            ))}
+          </div>
         </Panel>
       </div>
     </div>
