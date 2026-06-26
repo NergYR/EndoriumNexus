@@ -68,10 +68,14 @@ on every push to `main`/`master`, on `v*` tags, and on manual dispatch.
 
 One-time setup in the GitHub repo (Settings → Secrets and variables → Actions):
 
-| Kind     | Name                 | Value                                        |
-| -------- | -------------------- | -------------------------------------------- |
-| Variable | `DOCKERHUB_USERNAME` | your Docker Hub namespace                    |
-| Secret   | `DOCKERHUB_TOKEN`    | a Docker Hub access token (Read & Write)     |
+| Name                 | Where                                  | Value                                    |
+| -------------------- | -------------------------------------- | ---------------------------------------- |
+| `DOCKERHUB_USERNAME` | **Variable** (recommended) *or* Secret | your Docker Hub namespace                |
+| `DOCKERHUB_TOKEN`    | Secret                                 | a Docker Hub access token (Read & Write) |
+
+`DOCKERHUB_USERNAME` works either as a repository **Variable** or a **Secret** (the
+workflow falls back to the secret). A Variable is preferable so the username stays
+readable in the build logs instead of being masked as `***`.
 
 Create the access token at Docker Hub → Account Settings → Personal access tokens.
 The image is published as `<DOCKERHUB_USERNAME>/endorium-nexus` with tags:
