@@ -21,6 +21,7 @@ struct UvListener {
     int port;
     UvTransport transport;
     UvPacketHandler handler{};
+    bool close_after_response{true};
 };
 
 int run_uv_daemon(const std::string& service_name, const std::vector<UvListener>& listeners);

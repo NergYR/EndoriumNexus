@@ -3,10 +3,12 @@
 #include <uv.h>
 
 #include <csignal>
+#include <cstdint>
 #include <cstring>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace nexus::core {
@@ -17,6 +19,7 @@ struct TcpServer {
     uv_tcp_t handle{};
     std::string label;
     UvPacketHandler handler;
+    bool close_after_response{true};
 };
 
 struct UdpServer {
@@ -28,7 +31,9 @@ struct UdpServer {
 struct TcpClient {
     uv_tcp_t handle{};
     std::string label;
+    std::string connection_label;
     UvPacketHandler handler;
+    bool close_after_response{true};
     uv_write_t write_request{};
     std::vector<std::uint8_t> write_buffer;
 };
@@ -55,7 +60,9 @@ void on_new_connection(uv_stream_t* server, int status) {
     const auto* tcp_server = static_cast<TcpServer*>(server->data);
     auto* client = new TcpClient;
     client->label = tcp_server->label;
+    client->connection_label = tcp_server->label + "#" + std::to_string(reinterpret_cast<std::uintptr_t>(client));
     client->handler = tcp_server->handler;
+    client->close_after_response = tcp_server->close_after_response;
     uv_tcp_init(server->loop, &client->handle);
     client->handle.data = client;
     if (uv_accept(server, reinterpret_cast<uv_stream_t*>(&client->handle)) == 0) {
@@ -66,7 +73,7 @@ void on_new_connection(uv_stream_t* server, int status) {
                     UvPacket request(
                         reinterpret_cast<std::uint8_t*>(buf->base),
                         reinterpret_cast<std::uint8_t*>(buf->base) + nread);
-                    auto response = tcp_client->handler(tcp_client->label, request);
+                    auto response = tcp_client->handler(tcp_client->connection_label, request);
                     if (!response.empty()) {
                         tcp_client->write_buffer = std::move(response);
                         auto write_buffer = uv_buf_init(
@@ -75,7 +82,9 @@ void on_new_connection(uv_stream_t* server, int status) {
                         tcp_client->write_request.data = tcp_client;
                         const int write_status = uv_write(&tcp_client->write_request, stream, &write_buffer, 1, [](uv_write_t* request, int) {
                             auto* written_client = static_cast<TcpClient*>(request->data);
-                            uv_close(reinterpret_cast<uv_handle_t*>(&written_client->handle), on_client_closed);
+                            if (written_client->close_after_response) {
+                                uv_close(reinterpret_cast<uv_handle_t*>(&written_client->handle), on_client_closed);
+                            }
                         });
                         if (write_status < 0) {
                             uv_close(reinterpret_cast<uv_handle_t*>(&tcp_client->handle), on_client_closed);
@@ -166,12 +175,20 @@ int run_uv_daemon(const std::string& service_name, const std::vector<UvListener>
             auto server = std::make_unique<TcpServer>();
             server->label = listener.label;
             server->handler = listener.handler;
+            server->close_after_response = listener.close_after_response;
             uv_tcp_init(&loop, &server->handle);
             server->handle.data = server.get();
-            uv_tcp_bind(&server->handle, reinterpret_cast<const sockaddr*>(&addr), 0);
-            uv_listen(reinterpret_cast<uv_stream_t*>(&server->handle), 64, on_new_connection);
-            std::cout << service_name << ": listening on tcp://" << listener.host << ":" << listener.port
-                      << " (" << listener.label << ")" << std::endl;
+            int rc = uv_tcp_bind(&server->handle, reinterpret_cast<const sockaddr*>(&addr), 0);
+            if (rc == 0) {
+                rc = uv_listen(reinterpret_cast<uv_stream_t*>(&server->handle), 64, on_new_connection);
+            }
+            if (rc < 0) {
+                std::cerr << service_name << ": FAILED to listen on tcp://" << listener.host << ":"
+                          << listener.port << " (" << listener.label << "): " << uv_strerror(rc) << std::endl;
+            } else {
+                std::cout << service_name << ": listening on tcp://" << listener.host << ":" << listener.port
+                          << " (" << listener.label << ")" << std::endl;
+            }
             tcp_servers.push_back(std::move(server));
         } else {
             auto server = std::make_unique<UdpServer>();
@@ -179,10 +196,17 @@ int run_uv_daemon(const std::string& service_name, const std::vector<UvListener>
             server->handler = listener.handler;
             uv_udp_init(&loop, &server->handle);
             server->handle.data = server.get();
-            uv_udp_bind(&server->handle, reinterpret_cast<const sockaddr*>(&addr), 0);
-            uv_udp_recv_start(&server->handle, alloc_buffer, on_udp_read);
-            std::cout << service_name << ": listening on udp://" << listener.host << ":" << listener.port
-                      << " (" << listener.label << ")" << std::endl;
+            int rc = uv_udp_bind(&server->handle, reinterpret_cast<const sockaddr*>(&addr), 0);
+            if (rc == 0) {
+                rc = uv_udp_recv_start(&server->handle, alloc_buffer, on_udp_read);
+            }
+            if (rc < 0) {
+                std::cerr << service_name << ": FAILED to listen on udp://" << listener.host << ":"
+                          << listener.port << " (" << listener.label << "): " << uv_strerror(rc) << std::endl;
+            } else {
+                std::cout << service_name << ": listening on udp://" << listener.host << ":" << listener.port
+                          << " (" << listener.label << ")" << std::endl;
+            }
             udp_servers.push_back(std::move(server));
         }
     }

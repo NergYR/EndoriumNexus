@@ -37,7 +37,7 @@ trap cleanup EXIT INT TERM
   cd "${ROOT_DIR}"
   export NEXUS_ENV=development
   export NEXUS_HTTP_HOST="${NEXUS_HTTP_HOST:-127.0.0.1}"
-  export NEXUS_HTTP_PORT="${NEXUS_HTTP_PORT:-8080}"
+  export NEXUS_HTTP_PORT="${NEXUS_HTTP_PORT:-18080}"
   export NEXUS_BLOB_ROOT="${NEXUS_BLOB_ROOT:-var/blob}"
   export NEXUS_STATE_ROOT="${NEXUS_STATE_ROOT:-var/state}"
   "${API_BIN}"
@@ -48,7 +48,7 @@ API_PID=$!
   cd "${ROOT_DIR}"
   export NEXUS_ENV=development
   export NEXUS_HTTP_HOST="${NEXUS_HTTP_HOST:-127.0.0.1}"
-  export NEXUS_HTTP_PORT="${NEXUS_HTTP_PORT:-8080}"
+  export NEXUS_HTTP_PORT="${NEXUS_HTTP_PORT:-18080}"
   export NEXUS_BLOB_ROOT="${NEXUS_BLOB_ROOT:-var/blob}"
   export NEXUS_STATE_ROOT="${NEXUS_STATE_ROOT:-var/state}"
   "${SERVICES_BIN}"

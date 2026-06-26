@@ -368,17 +368,17 @@ export function DnsPage() {
   };
 
   if (zones.isLoading || !zones.data) {
-    return <div className="text-sm text-slate-500">Chargement du DNS...</div>;
+    return <div className="text-sm text-slate-400">Chargement du DNS...</div>;
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 md:flex-row md:items-center">
-        <p className="text-sm text-slate-600">
+      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-3 md:flex-row md:items-center">
+        <p className="text-sm text-slate-300">
           Modifications are saved immediately but require a service restart to take effect.
         </p>
         <button
-          className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+          className="rounded-full border border-slate-700/70 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-900/40 disabled:opacity-60"
           onClick={() => restartService.mutate()}
           type="button"
           disabled={restartService.isPending}
@@ -396,8 +396,8 @@ export function DnsPage() {
                 className={[
                   "rounded-2xl border px-4 py-3 text-left transition",
                   activeZone?.name === zone.name
-                    ? "border-blue-200 bg-blue-50"
-                    : "border-slate-200 bg-white hover:border-slate-300"
+                    ? "border-cyan-400/30 bg-cyan-400/10"
+                    : "border-slate-700/70 bg-slate-900/50 hover:border-slate-600/70"
                 ].join(" ")}
                 key={zone.name}
                 onClick={() => {
@@ -406,44 +406,44 @@ export function DnsPage() {
                 }}
                 type="button"
               >
-                <p className="font-medium text-slate-900">{zone.name}</p>
-                <p className="mt-1 text-sm text-slate-600">{zone.records.length} enregistrements</p>
+                <p className="font-medium text-slate-50">{zone.name}</p>
+                <p className="mt-1 text-sm text-slate-300">{zone.records.length} enregistrements</p>
               </button>
             ))}
           </div>
 
           {!zones.data.length ? (
-            <p className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <p className="mt-5 rounded-2xl border border-slate-700/70 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">
               No DNS zone configured yet. Create one to start publishing records.
             </p>
           ) : null}
 
           {activeZone ? (
             <div className="mt-5 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-3">
                 <div>
-                  <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Selected zone</p>
-                  <p className="font-medium text-slate-900">{selectedZoneLabel}</p>
+                  <p className="text-sm uppercase tracking-[0.18em] text-slate-400">Selected zone</p>
+                  <p className="font-medium text-slate-50">{selectedZoneLabel}</p>
                 </div>
-                <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Serial {activeZone.serial}</span>
+                <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Serial {activeZone.serial}</span>
               </div>
 
               {activeRecords.map((record, index) => (
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3" key={`${record.name}-${record.type}-${index}`}>
+                <div className="rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-3" key={`${record.name}-${record.type}-${index}`}>
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <p className="font-medium text-slate-900">
-                        {record.name} <span className="text-slate-500">{record.type}</span>
+                      <p className="font-medium text-slate-50">
+                        {record.name} <span className="text-slate-400">{record.type}</span>
                       </p>
-                      <p className="mt-1 break-all text-sm text-slate-600">{record.value}</p>
-                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-500">
+                      <p className="mt-1 break-all text-sm text-slate-300">{record.value}</p>
+                      <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">
                         TTL {record.ttl} {record.priority ? `- Priority ${record.priority}` : ""}
                         {record.port ? ` - Port ${record.port}` : ""}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button
-                        className="rounded-full border border-slate-200 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-50"
+                        className="rounded-full border border-slate-700/70 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300 transition hover:bg-slate-900/40"
                         onClick={() => beginEditRecord(index)}
                         type="button"
                       >
@@ -535,7 +535,7 @@ export function DnsPage() {
           </Panel>
 
           <Panel title="Zone Renderer" eyebrow="BIND-Compatible">
-            <pre className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <pre className="overflow-x-auto rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4 text-sm text-slate-200">
               {zoneRender.data?.text ?? "Select a zone to render"}
             </pre>
           </Panel>
@@ -572,7 +572,7 @@ export function DnsPage() {
               }}
             >
               <label className="grid gap-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Record type</span>
+                <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Record type</span>
                 <select
                   className="field rounded-2xl px-4 py-3 outline-none"
                   onChange={(event) => setRecordType(event.target.value)}
@@ -584,12 +584,12 @@ export function DnsPage() {
                     </option>
                   ))}
                 </select>
-                <span className="text-xs text-slate-500">{recordConfig.hint}</span>
+                <span className="text-xs text-slate-400">{recordConfig.hint}</span>
               </label>
 
               <div className="grid gap-3 md:grid-cols-[1fr_0.65fr]">
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Name</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Name</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => {
@@ -601,7 +601,7 @@ export function DnsPage() {
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Class</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Class</span>
                   <select
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => {
@@ -619,7 +619,7 @@ export function DnsPage() {
 
               <div className="grid gap-3 md:grid-cols-[1fr_0.65fr]">
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">{recordConfig.valueLabel}</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{recordConfig.valueLabel}</span>
                   <input
                     className="field rounded-2xl px-4 py-3 font-mono text-sm outline-none"
                     onChange={(event) => {
@@ -629,10 +629,10 @@ export function DnsPage() {
                     placeholder={recordConfig.valuePlaceholder}
                     value={recordForm.value}
                   />
-                  <span className="text-xs text-slate-500">{recordConfig.valueHelp}</span>
+                  <span className="text-xs text-slate-400">{recordConfig.valueHelp}</span>
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">TTL</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">TTL</span>
                   <select
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => {
@@ -664,10 +664,10 @@ export function DnsPage() {
               </div>
 
               {recordConfig.showPriority || recordConfig.showWeight || recordConfig.showPort || recordConfig.showFlags ? (
-                <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
+                <div className="grid gap-3 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4 md:grid-cols-2">
                   {recordConfig.showPriority ? (
                     <label className="grid gap-2">
-                      <span className="text-xs uppercase tracking-[0.18em] text-slate-500">{recordConfig.priorityLabel ?? "Priority"}</span>
+                      <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{recordConfig.priorityLabel ?? "Priority"}</span>
                       <input
                         className="field rounded-2xl px-4 py-3 outline-none"
                         min={0}
@@ -682,7 +682,7 @@ export function DnsPage() {
                   ) : null}
                   {recordConfig.showWeight ? (
                     <label className="grid gap-2">
-                      <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Weight</span>
+                      <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Weight</span>
                       <input
                         className="field rounded-2xl px-4 py-3 outline-none"
                         min={0}
@@ -697,7 +697,7 @@ export function DnsPage() {
                   ) : null}
                   {recordConfig.showPort ? (
                     <label className="grid gap-2">
-                      <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Port</span>
+                      <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Port</span>
                       <input
                         className="field rounded-2xl px-4 py-3 outline-none"
                         max={65535}
@@ -713,7 +713,7 @@ export function DnsPage() {
                   ) : null}
                   {recordConfig.showFlags ? (
                     <label className="grid gap-2">
-                      <span className="text-xs uppercase tracking-[0.18em] text-slate-500">{recordConfig.flagsLabel ?? "Flags"}</span>
+                      <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{recordConfig.flagsLabel ?? "Flags"}</span>
                       <input
                         className="field rounded-2xl px-4 py-3 outline-none"
                         onChange={(event) => {
@@ -728,9 +728,9 @@ export function DnsPage() {
                 </div>
               ) : null}
 
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Preview</p>
-                <p className="mt-2 break-all font-mono text-sm text-slate-700">{renderRecordPreview(recordForm)}</p>
+              <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Preview</p>
+                <p className="mt-2 break-all font-mono text-sm text-slate-200">{renderRecordPreview(recordForm)}</p>
               </div>
 
               <div className="flex flex-wrap gap-3 pt-1">
@@ -739,7 +739,7 @@ export function DnsPage() {
                 </button>
                 {editingRecordIndex !== null ? (
                   <button
-                    className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-600 transition hover:bg-slate-50"
+                    className="rounded-2xl border border-slate-700/70 px-4 py-3 font-medium text-slate-300 transition hover:bg-slate-900/40"
                     onClick={() => {
                       setEditingRecordIndex(null);
                       setRecordForm(defaultRecordForm());

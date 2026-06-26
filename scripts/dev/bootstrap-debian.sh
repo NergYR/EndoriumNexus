@@ -4,6 +4,9 @@ set -euo pipefail
 sudo apt install -y \
   build-essential \
   cmake \
+  dpkg \
+  dpkg-dev \
+  gnupg \
   ninja-build \
   pkg-config \
   libargon2-dev \
@@ -16,4 +19,3 @@ sudo apt install -y \
   npm
 
 echo "System dependencies installed."
-

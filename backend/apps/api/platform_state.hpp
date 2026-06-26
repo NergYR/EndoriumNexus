@@ -16,6 +16,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -23,6 +24,52 @@ namespace nexus::api {
 
 class PlatformState {
   public:
+    struct ActiveDirectoryReadinessItem {
+        std::string id;
+        std::string label;
+        std::string category;
+        std::string detail;
+        bool ready{false};
+        bool blocking{true};
+    };
+
+    struct ActiveDirectoryReadinessSnapshot {
+        bool supported{false};
+        std::string dns_name;
+        std::string realm;
+        std::string base_dn;
+        std::vector<ActiveDirectoryReadinessItem> items;
+    };
+
+    struct ActiveDirectoryAttributeValue {
+        std::string value;
+        std::string encoding{"utf8"};
+    };
+
+    struct ActiveDirectoryAttribute {
+        std::string name;
+        std::string type{"string"};
+        bool multi_valued{false};
+        std::vector<ActiveDirectoryAttributeValue> values;
+    };
+
+    struct ActiveDirectoryObject {
+        std::string object_guid;
+        std::string domain_dns_name;
+        std::string dn;
+        std::string parent_dn;
+        std::string rdn;
+        std::string kind;
+        std::string object_sid;
+        std::uint64_t rid{0};
+        std::uint64_t usn_created{0};
+        std::uint64_t usn_changed{0};
+        std::string when_created;
+        std::string when_changed;
+        std::vector<std::string> object_classes;
+        std::vector<ActiveDirectoryAttribute> attributes;
+    };
+
     struct LoginResult {
         bool ok{false};
         std::string error;
@@ -38,6 +85,8 @@ class PlatformState {
     [[nodiscard]] nexus::core::DashboardSnapshot dashboard() const;
     [[nodiscard]] std::vector<nexus::core::ServiceStatus> services() const;
     [[nodiscard]] std::vector<nexus::core::DirectoryObject> directory_objects() const;
+    [[nodiscard]] std::vector<ActiveDirectoryObject> active_directory_objects() const;
+    [[nodiscard]] ActiveDirectoryReadinessSnapshot active_directory_readiness() const;
     [[nodiscard]] std::vector<nexus::core::DnsZone> dns_zones() const;
     [[nodiscard]] std::vector<nexus::core::DhcpPool> dhcp_pools() const;
     [[nodiscard]] std::vector<nexus::core::PkiAuthority> pki_authorities() const;
@@ -47,6 +96,7 @@ class PlatformState {
     [[nodiscard]] std::vector<nexus::core::AptRepository> apt_repositories() const;
     [[nodiscard]] std::vector<nexus::core::AuditEvent> audit_events() const;
     [[nodiscard]] std::vector<nexus::core::JobSummary> jobs() const;
+    void record_platform_audit(std::string actor, std::string domain, std::string action, std::string detail);
     [[nodiscard]] std::optional<nexus::core::DnsZone> find_zone(const std::string& zone_name) const;
     [[nodiscard]] std::optional<std::string> render_zone(const std::string& zone_name) const;
     [[nodiscard]] std::uint64_t stream_revision() const;
@@ -120,6 +170,12 @@ class PlatformState {
         const std::string& distribution,
         const std::string& component,
         const nexus::core::AptPackage& package,
+        const std::string& actor);
+    [[nodiscard]] std::optional<nexus::core::AptPackage> upload_apt_package(
+        const std::string& distribution,
+        const std::string& component,
+        const std::string& filename,
+        std::string_view content,
         const std::string& actor);
     [[nodiscard]] bool update_apt_package(
         const std::string& distribution,

@@ -20,12 +20,23 @@ constexpr std::uint16_t dns_type_aaaa = 28;
 constexpr std::uint16_t dns_type_srv = 33;
 constexpr std::uint16_t dns_type_any = 255;
 constexpr std::uint16_t dns_class_in = 1;
+constexpr std::uint16_t dns_class_none = 254;
+constexpr std::uint16_t dns_class_any = 255;
+constexpr std::uint16_t dns_opcode_update = 5;
+constexpr std::uint16_t dns_rcode_formerr = 1;
+constexpr std::uint16_t dns_rcode_notauth = 9;
 
 struct DnsQuestion {
     std::string name;
     std::uint16_t type{0};
     std::uint16_t qclass{0};
     std::size_t end_offset{0};
+};
+
+struct AuthorizedUpdateZone {
+    bool authorized{false};
+    std::string update_zone_name;
+    std::string storage_zone_name;
 };
 
 std::string quoted_dns_text(const std::string& value) {
@@ -51,6 +62,17 @@ std::string trim_trailing_dot(std::string value) {
 
 std::uint16_t read_u16(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
     return static_cast<std::uint16_t>((bytes[offset] << 8U) | bytes[offset + 1]);
+}
+
+std::uint32_t read_u32(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
+    return (static_cast<std::uint32_t>(bytes[offset]) << 24U) |
+           (static_cast<std::uint32_t>(bytes[offset + 1]) << 16U) |
+           (static_cast<std::uint32_t>(bytes[offset + 2]) << 8U) |
+           static_cast<std::uint32_t>(bytes[offset + 3]);
+}
+
+std::uint16_t dns_opcode(std::uint16_t flags) {
+    return static_cast<std::uint16_t>((flags >> 11U) & 0x0fU);
 }
 
 void write_u16(std::vector<std::uint8_t>& bytes, std::uint16_t value) {
@@ -154,6 +176,240 @@ bool parse_question(const std::vector<std::uint8_t>& query, DnsQuestion& questio
     question.qclass = read_u16(query, offset + 2);
     question.end_offset = offset + 4;
     return true;
+}
+
+bool zone_exists_for_update(const DnsQuestion& zone_question, const std::vector<nexus::core::DnsZone>& zones) {
+    const auto zone_name = lowercase_ascii(trim_trailing_dot(zone_question.name));
+    return std::any_of(zones.begin(), zones.end(), [&](const auto& zone) {
+        const auto candidate = lowercase_ascii(trim_trailing_dot(zone.name));
+        return zone_name == candidate || zone_name == "_msdcs." + candidate;
+    });
+}
+
+AuthorizedUpdateZone authorized_update_zone(
+    const DnsQuestion& zone_question,
+    const std::vector<nexus::core::DnsZone>& zones) {
+    const auto zone_name = lowercase_ascii(trim_trailing_dot(zone_question.name));
+    for (const auto& zone : zones) {
+        const auto candidate = lowercase_ascii(trim_trailing_dot(zone.name));
+        if (zone_name == candidate) {
+            return {true, zone_name, candidate};
+        }
+        if (zone_name == "_msdcs." + candidate) {
+            return {true, zone_name, candidate};
+        }
+    }
+    return {false, zone_name, ""};
+}
+
+std::string type_name(std::uint16_t type) {
+    switch (type) {
+        case dns_type_a:
+            return "A";
+        case dns_type_ns:
+            return "NS";
+        case dns_type_cname:
+            return "CNAME";
+        case dns_type_txt:
+            return "TXT";
+        case dns_type_srv:
+            return "SRV";
+        case dns_type_any:
+            return "ANY";
+        default:
+            return "";
+    }
+}
+
+std::string relative_update_name(
+    const std::string& fqdn,
+    const AuthorizedUpdateZone& zone) {
+    auto name = lowercase_ascii(trim_trailing_dot(fqdn));
+    const auto storage_zone = lowercase_ascii(trim_trailing_dot(zone.storage_zone_name));
+    const auto update_zone = lowercase_ascii(trim_trailing_dot(zone.update_zone_name));
+    if (name == storage_zone) {
+        return "@";
+    }
+    if (!storage_zone.empty() && name.size() > storage_zone.size() && name.ends_with("." + storage_zone)) {
+        return name.substr(0, name.size() - storage_zone.size() - 1);
+    }
+    if (!update_zone.empty() && name == update_zone) {
+        if (update_zone == storage_zone) {
+            return "@";
+        }
+        return update_zone.substr(0, update_zone.size() - storage_zone.size() - 1);
+    }
+    return name;
+}
+
+std::string ipv4_text(const std::vector<std::uint8_t>& query, std::size_t offset) {
+    if (offset + 4 > query.size()) {
+        return "";
+    }
+    return std::to_string(query[offset]) + "." +
+           std::to_string(query[offset + 1]) + "." +
+           std::to_string(query[offset + 2]) + "." +
+           std::to_string(query[offset + 3]);
+}
+
+bool parse_update_rdata(
+    const std::vector<std::uint8_t>& query,
+    std::size_t rdata_offset,
+    std::uint16_t rdlength,
+    std::uint16_t type,
+    nexus::core::DnsRecord& record) {
+    if (rdata_offset + rdlength > query.size()) {
+        return false;
+    }
+    if (type == dns_type_a) {
+        if (rdlength != 4) {
+            return false;
+        }
+        record.value = ipv4_text(query, rdata_offset);
+        return !record.value.empty();
+    }
+    if (type == dns_type_srv) {
+        if (rdlength < 7) {
+            return false;
+        }
+        record.priority = read_u16(query, rdata_offset);
+        record.weight = read_u16(query, rdata_offset + 2);
+        record.port = read_u16(query, rdata_offset + 4);
+        std::size_t target_offset = rdata_offset + 6;
+        std::string target;
+        if (!read_dns_name(query, target_offset, target) || target_offset > rdata_offset + rdlength) {
+            return false;
+        }
+        record.value = trim_trailing_dot(target) + ".";
+        return true;
+    }
+    if (type == dns_type_ns || type == dns_type_cname) {
+        std::size_t target_offset = rdata_offset;
+        std::string target;
+        if (!read_dns_name(query, target_offset, target) || target_offset > rdata_offset + rdlength) {
+            return false;
+        }
+        record.value = trim_trailing_dot(target) + ".";
+        return true;
+    }
+    if (type == dns_type_txt) {
+        std::string text;
+        std::size_t offset = rdata_offset;
+        while (offset < rdata_offset + rdlength) {
+            const auto size = query[offset++];
+            if (offset + size > rdata_offset + rdlength) {
+                return false;
+            }
+            if (!text.empty()) {
+                text.push_back('\n');
+            }
+            text.append(
+                reinterpret_cast<const char*>(query.data() + offset),
+                size);
+            offset += size;
+        }
+        record.value = text;
+        return true;
+    }
+    return false;
+}
+
+bool skip_dns_records(
+    const std::vector<std::uint8_t>& query,
+    std::size_t& offset,
+    std::uint16_t count) {
+    for (std::uint16_t index = 0; index < count; ++index) {
+        std::string name;
+        if (!read_dns_name(query, offset, name) || offset + 10 > query.size()) {
+            return false;
+        }
+        const auto rdlength = read_u16(query, offset + 8);
+        offset += 10;
+        if (offset + rdlength > query.size()) {
+            return false;
+        }
+        offset += rdlength;
+    }
+    return true;
+}
+
+std::vector<DnsDynamicUpdateRecord> parse_update_records(
+    const std::vector<std::uint8_t>& query,
+    std::size_t offset,
+    std::uint16_t count,
+    const AuthorizedUpdateZone& zone) {
+    std::vector<DnsDynamicUpdateRecord> records;
+    for (std::uint16_t index = 0; index < count; ++index) {
+        std::string owner_name;
+        if (!read_dns_name(query, offset, owner_name) || offset + 10 > query.size()) {
+            return {};
+        }
+        const auto type = read_u16(query, offset);
+        const auto record_class = read_u16(query, offset + 2);
+        const auto ttl = read_u32(query, offset + 4);
+        const auto rdlength = read_u16(query, offset + 8);
+        offset += 10;
+        if (offset + rdlength > query.size()) {
+            return {};
+        }
+
+        nexus::core::DnsRecord record;
+        record.name = relative_update_name(owner_name, zone);
+        record.type = type_name(type);
+        record.dns_class = "IN";
+        record.ttl = ttl == 0 ? 300 : ttl;
+        const bool deletion = record_class == dns_class_any || record_class == dns_class_none;
+        const bool delete_rrset = record_class == dns_class_any || type == dns_type_any;
+
+        if (record.type.empty()) {
+            offset += rdlength;
+            continue;
+        }
+        if (!deletion && record_class != dns_class_in) {
+            offset += rdlength;
+            continue;
+        }
+        if (!deletion && !parse_update_rdata(query, offset, rdlength, type, record)) {
+            offset += rdlength;
+            continue;
+        }
+        if (deletion && rdlength > 0) {
+            parse_update_rdata(query, offset, rdlength, type, record);
+        }
+        offset += rdlength;
+        records.push_back({zone.storage_zone_name, std::move(record), deletion, delete_rrset});
+    }
+    return records;
+}
+
+std::vector<std::uint8_t> dns_update_response(
+    const std::vector<std::uint8_t>& query,
+    const std::vector<nexus::core::DnsZone>& zones) {
+    const auto transaction_id = read_u16(query, 0);
+    DnsQuestion zone_question;
+    std::uint16_t rcode = dns_rcode_formerr;
+    bool echo_zone = false;
+    if (parse_question(query, zone_question) &&
+        (zone_question.type == dns_type_soa || zone_question.type == dns_type_any) &&
+        zone_question.qclass == dns_class_in) {
+        echo_zone = true;
+        rcode = zone_exists_for_update(zone_question, zones) ? 0 : dns_rcode_notauth;
+    }
+
+    std::vector<std::uint8_t> response;
+    write_u16(response, transaction_id);
+    write_u16(response, static_cast<std::uint16_t>(0x8000U | (dns_opcode_update << 11U) | rcode));
+    write_u16(response, echo_zone ? 1 : 0);
+    write_u16(response, 0);
+    write_u16(response, 0);
+    write_u16(response, 0);
+    if (echo_zone) {
+        response.insert(
+            response.end(),
+            query.begin() + 12,
+            query.begin() + static_cast<std::ptrdiff_t>(zone_question.end_offset));
+    }
+    return response;
 }
 
 std::uint16_t type_code(const std::string& type) {
@@ -317,6 +573,77 @@ nexus::core::DnsZone make_active_directory_dns_zone(const ActiveDirectoryDnsConf
     return {dns_name, 1, std::move(records)};
 }
 
+void merge_active_directory_dns_zone(
+    std::vector<nexus::core::DnsZone>& zones,
+    nexus::core::DnsZone ad_zone) {
+    const auto ad_zone_name = lowercase_ascii(trim_trailing_dot(ad_zone.name));
+    auto zone = std::find_if(zones.begin(), zones.end(), [&](const auto& candidate) {
+        return lowercase_ascii(trim_trailing_dot(candidate.name)) == ad_zone_name;
+    });
+    if (zone == zones.end()) {
+        zones.push_back(std::move(ad_zone));
+        return;
+    }
+
+    zone->serial = std::max(zone->serial, ad_zone.serial);
+    for (const auto& record : ad_zone.records) {
+        const auto exists = std::any_of(zone->records.begin(), zone->records.end(), [&](const auto& candidate) {
+            return lowercase_ascii(trim_trailing_dot(candidate.name)) == lowercase_ascii(trim_trailing_dot(record.name)) &&
+                   lowercase_ascii(candidate.type) == lowercase_ascii(record.type) &&
+                   lowercase_ascii(trim_trailing_dot(candidate.value)) == lowercase_ascii(trim_trailing_dot(record.value)) &&
+                   lowercase_ascii(candidate.dns_class) == lowercase_ascii(record.dns_class) &&
+                   candidate.priority == record.priority &&
+                   candidate.weight == record.weight &&
+                   candidate.port == record.port &&
+                   candidate.flags == record.flags;
+        });
+        if (!exists) {
+            zone->records.push_back(record);
+        }
+    }
+}
+
+DnsDynamicUpdate parse_dns_dynamic_update(
+    const std::vector<std::uint8_t>& query,
+    const std::vector<nexus::core::DnsZone>& zones) {
+    DnsDynamicUpdate update;
+    if (query.size() < 12) {
+        return update;
+    }
+    const auto flags = read_u16(query, 2);
+    update.is_update = dns_opcode(flags) == dns_opcode_update;
+    if (!update.is_update) {
+        return update;
+    }
+
+    DnsQuestion zone_question;
+    if (!parse_question(query, zone_question) ||
+        (zone_question.type != dns_type_soa && zone_question.type != dns_type_any) ||
+        zone_question.qclass != dns_class_in) {
+        update.valid = false;
+        return update;
+    }
+
+    update.valid = true;
+    const auto zone = authorized_update_zone(zone_question, zones);
+    update.authorized = zone.authorized;
+    update.zone_name = zone.storage_zone_name.empty() ? zone.update_zone_name : zone.storage_zone_name;
+    if (!update.authorized) {
+        return update;
+    }
+
+    std::size_t offset = zone_question.end_offset;
+    const auto prerequisite_count = read_u16(query, 6);
+    const auto update_count = read_u16(query, 8);
+    if (!skip_dns_records(query, offset, prerequisite_count)) {
+        update.valid = false;
+        update.records.clear();
+        return update;
+    }
+    update.records = parse_update_records(query, offset, update_count, zone);
+    return update;
+}
+
 std::vector<std::uint8_t> resolve_dns_query(
     const std::vector<std::uint8_t>& query,
     const std::vector<nexus::core::DnsZone>& zones) {
@@ -326,6 +653,10 @@ std::vector<std::uint8_t> resolve_dns_query(
 
     DnsQuestion question;
     const auto transaction_id = read_u16(query, 0);
+    const auto request_flags = read_u16(query, 2);
+    if (dns_opcode(request_flags) == dns_opcode_update) {
+        return dns_update_response(query, zones);
+    }
     if (!parse_question(query, question)) {
         std::vector<std::uint8_t> response;
         write_u16(response, transaction_id);

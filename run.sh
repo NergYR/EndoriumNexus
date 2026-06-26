@@ -12,7 +12,9 @@ Usage: ./run.sh [--preset <name>]
 
 Environment variables:
   BUILD_PRESET     CMake preset to use (default: dev)
+  CMAKE            cmake binary to use (default: cmake)
   NPM              npm binary to use (default: npm)
+  NEXUS_SKIP_BUILD set to 1 to launch existing binaries without rebuilding
   NEXUS_UI_HOST    Frontend dev server host (default: 0.0.0.0)
   NEXUS_UI_PORT    Frontend dev server port (default: 5173)
 EOF
@@ -46,9 +48,10 @@ fi
 
 export NEXUS_ENV="${NEXUS_ENV:-development}"
 export NEXUS_HTTP_HOST="${NEXUS_HTTP_HOST:-127.0.0.1}"
-export NEXUS_HTTP_PORT="${NEXUS_HTTP_PORT:-8080}"
+export NEXUS_HTTP_PORT="${NEXUS_HTTP_PORT:-18080}"
 export NEXUS_BLOB_ROOT="${NEXUS_BLOB_ROOT:-var/blob}"
 export NEXUS_STATE_ROOT="${NEXUS_STATE_ROOT:-var/state}"
+export NEXUS_SQL_MIGRATIONS_DIR="${NEXUS_SQL_MIGRATIONS_DIR:-${ROOT_DIR}/backend/sql/migrations}"
 
 if [[ -z "${NEXUS_ADMIN_PASSWORD_HASH:-}" ]]; then
   echo "[run] missing NEXUS_ADMIN_PASSWORD_HASH in environment/.env.local" >&2
@@ -59,6 +62,17 @@ fi
 BUILD_DIR="${ROOT_DIR}/build/${BUILD_PRESET}/backend"
 API_BIN="${BUILD_DIR}/nexus-api"
 SERVICES_BIN="${BUILD_DIR}/nexus-services"
+CMAKE="${CMAKE:-cmake}"
+
+if [[ "${NEXUS_SKIP_BUILD:-0}" != "1" ]]; then
+  if [[ -d "${ROOT_DIR}/build/${BUILD_PRESET}" ]]; then
+    echo "[run] rebuilding backend targets for preset '${BUILD_PRESET}'"
+    "${CMAKE}" --build --preset "${BUILD_PRESET}"
+  else
+    echo "[run] missing build directory for preset '${BUILD_PRESET}', starting full build"
+    "${ROOT_DIR}/build.sh" --preset "${BUILD_PRESET}"
+  fi
+fi
 
 if [[ ! -x "${API_BIN}" || ! -x "${SERVICES_BIN}" ]]; then
   echo "[run] missing build artifacts for preset '${BUILD_PRESET}', starting full build"

@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
+  AptPackage,
   AptRepository,
   AptPackagePayload,
   ActiveDirectoryDomainCreatePayload,
   ActiveDirectoryDomainSnapshot,
-  ActiveDirectoryReadinessItem,
+  ActiveDirectoryObject,
+  ActiveDirectoryReadiness,
   AuditEvent,
   AuthSession,
   PkiAssistantSnapshot,
@@ -28,7 +30,15 @@ import type {
   PkiRevocation,
   ServiceStatus,
   SettingsSnapshot,
-  SettingsUpdatePayload
+  SettingsUpdatePayload,
+  VcsAccessToken,
+  VcsAccessTokenCreatePayload,
+  VcsAccessTokenCreateResponse,
+  VcsEvent,
+  VcsRef,
+  VcsRepository,
+  VcsRepositoryCreatePayload,
+  VcsRepositoryUpdatePayload
 } from "./types";
 
 const CSRF_STORAGE_KEY = "endorium.csrf";
@@ -107,6 +117,13 @@ export function useDirectoryObjects() {
   });
 }
 
+export function useActiveDirectoryObjects() {
+  return useQuery<ActiveDirectoryObject[]>({
+    queryKey: ["ad-objects"],
+    queryFn: () => request<ActiveDirectoryObject[]>("/api/v1/ad/objects")
+  });
+}
+
 export function useCreateDirectoryObject() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -117,10 +134,12 @@ export function useCreateDirectoryObject() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify(payload)
-      }),
+    }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["directory"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-objects"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -135,10 +154,12 @@ export function useUpdateDirectoryObject() {
           "Content-Type": "application/json"
         },
         body: JSON.stringify(payload.object)
-      }),
+    }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["directory"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-objects"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -149,10 +170,12 @@ export function useDeleteDirectoryObject() {
     mutationFn: (payload: { dn: string }) =>
       request<{ ok: boolean }>(`/api/v1/directory/objects/${encodeURIComponent(payload.dn)}`, {
         method: "DELETE"
-      }),
+    }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["directory"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-objects"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -186,6 +209,7 @@ export function useCreateDnsRecord() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["dns-zones"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -204,6 +228,7 @@ export function useUpdateDnsZone() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["dns-zones"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -218,6 +243,7 @@ export function useDeleteDnsZone() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["dns-zones"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -236,6 +262,7 @@ export function useUpdateDnsRecord() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["dns-zones"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -250,6 +277,7 @@ export function useDeleteDnsRecord() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["dns-zones"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -268,6 +296,7 @@ export function useCreateDnsZone() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["dns-zones"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -353,8 +382,8 @@ function toActiveDirectoryDomain(settings: SettingsSnapshot): ActiveDirectoryDom
     realm: settings.directory.realm,
     baseDn: settings.directory.baseDn,
     domainSid: synthesizeDomainSid(settings.domain),
-    domainControllerHost: settings.domain.split(".")[0] ?? "dc1",
-    domainControllerAddress: "127.0.0.1"
+    domainControllerHost: settings.directory.domainControllerHost,
+    domainControllerAddress: settings.directory.domainControllerAddress
   };
 }
 
@@ -368,41 +397,10 @@ export function useActiveDirectoryDomain() {
 }
 
 export function useActiveDirectoryReadiness() {
-  const dashboard = useDashboard();
-  const settings = useSettings();
-
-  const items: ActiveDirectoryReadinessItem[] = [
-    {
-      id: "domain",
-      label: "Domain profile",
-      ready: Boolean(settings.data?.domain && settings.data.directory.baseDn),
-      detail: settings.data ? `${settings.data.domain} / ${settings.data.directory.baseDn}` : "No domain configured yet"
-    },
-    {
-      id: "controllers",
-      label: "Directory services",
-      ready: Boolean(dashboard.data?.services.find((service) => service.id === "directory" && !service.blockingReason)),
-      detail: dashboard.data?.services.find((service) => service.id === "directory")?.summary ?? "Directory service status unavailable"
-    },
-    {
-      id: "dns",
-      label: "DNS listeners",
-      ready: Boolean(settings.data?.ports.dnsTcp && settings.data?.ports.dnsUdp),
-      detail: settings.data ? `${settings.data.ports.dnsTcp}/${settings.data.ports.dnsUdp}` : "DNS ports unavailable"
-    },
-    {
-      id: "bootstrap",
-      label: "Admin bootstrap",
-      ready: Boolean(settings.data?.adminEmail),
-      detail: settings.data?.adminEmail ?? "No admin account configured"
-    }
-  ];
-
-  return {
-    data: { items },
-    isLoading: dashboard.isLoading || settings.isLoading,
-    error: dashboard.error ?? settings.error
-  };
+  return useQuery<ActiveDirectoryReadiness>({
+    queryKey: ["ad-readiness"],
+    queryFn: () => request<ActiveDirectoryReadiness>("/api/v1/ad/readiness")
+  });
 }
 
 export function useActiveDirectoryJoinGuide() {
@@ -411,7 +409,7 @@ export function useActiveDirectoryJoinGuide() {
 
   const message = !domain.data
     ? "Create a Windows domain first, then add users, groups, and service accounts."
-    : readiness.data.items.every((item) => item.ready)
+    : readiness.data?.supported
       ? `The ${domain.data.dnsName} domain is ready for onboarding and group policy work.`
       : `Finish the blocked readiness items for ${domain.data.dnsName} before joining clients.`;
 
@@ -439,6 +437,7 @@ export function useCreateActiveDirectoryDomain() {
         body: JSON.stringify({
           environment: settings.data.environment,
           domain: payload.dnsName,
+          adPortProfile: settings.data.adPortProfile,
           blobRoot: settings.data.blobRoot,
           stateRoot: settings.data.stateRoot,
           databaseUrl: settings.data.databaseUrl,
@@ -448,14 +447,22 @@ export function useCreateActiveDirectoryDomain() {
           httpPort: settings.data.ports.http,
           ldapPort: settings.data.ports.ldap,
           ldapsPort: settings.data.ports.ldaps,
+          gcPort: settings.data.ports.gc,
           kerberosPort: settings.data.ports.kerberos,
+          kpasswdPort: settings.data.ports.kpasswd,
+          rpcPort: settings.data.ports.rpc,
+          smbPort: settings.data.ports.smb,
           dnsTcpPort: settings.data.ports.dnsTcp,
           dnsUdpPort: settings.data.ports.dnsUdp,
           dhcpPort: settings.data.ports.dhcp,
           directory: {
             baseDn: payload.baseDn,
             organization: settings.data.directory.organization,
-            realm: payload.dnsName.toUpperCase()
+            realm: payload.dnsName.toUpperCase(),
+            siteName: settings.data.directory.siteName,
+            domainControllerHost: payload.domainControllerHost,
+            domainControllerAddress: payload.domainControllerAddress,
+            keyEncryptionKeyFile: settings.data.directory.keyEncryptionKeyFile
           },
           dns: settings.data.dns,
           dhcp: settings.data.dhcp,
@@ -469,6 +476,8 @@ export function useCreateActiveDirectoryDomain() {
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       await queryClient.invalidateQueries({ queryKey: ["auth"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-objects"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -615,6 +624,24 @@ export function useCreateRepositoryPackage() {
   });
 }
 
+export function useUploadRepositoryPackage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { distribution: string; component: string; file: File }) => {
+      const body = new FormData();
+      body.set("file", payload.file);
+      return request<AptPackage>(`/api/v1/repos/${payload.distribution}/${payload.component}/packages/upload`, {
+        method: "POST",
+        body
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["repos"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    }
+  });
+}
+
 export function useUpdateRepositoryPackage() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -652,6 +679,135 @@ export function useRepositoryRender(distribution?: string, component?: string, k
     queryKey: ["repo-render", distribution, component, kind],
     queryFn: () => request<{ text: string }>(`/api/v1/repos/${distribution}/${component}/render/${kind}`),
     enabled: Boolean(distribution && component)
+  });
+}
+
+export function useVcsRepositories() {
+  return useQuery<VcsRepository[]>({
+    queryKey: ["vcs-repos"],
+    queryFn: () => request<VcsRepository[]>("/api/v1/vcs")
+  });
+}
+
+export function useVcsRefs(repositoryId?: string) {
+  return useQuery<VcsRef[]>({
+    queryKey: ["vcs-refs", repositoryId],
+    queryFn: () => request<VcsRef[]>(`/api/v1/vcs/${repositoryId}/refs`),
+    enabled: Boolean(repositoryId)
+  });
+}
+
+export function useVcsTokens(repositoryId?: string) {
+  return useQuery<VcsAccessToken[]>({
+    queryKey: ["vcs-tokens", repositoryId],
+    queryFn: () => request<VcsAccessToken[]>(`/api/v1/vcs/${repositoryId}/tokens`),
+    enabled: Boolean(repositoryId)
+  });
+}
+
+export function useVcsActivity(repositoryId?: string) {
+  return useQuery<VcsEvent[]>({
+    queryKey: ["vcs-activity", repositoryId],
+    queryFn: () => request<VcsEvent[]>(`/api/v1/vcs/${repositoryId}/activity`),
+    enabled: Boolean(repositoryId)
+  });
+}
+
+export function useCreateVcsRepository() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: VcsRepositoryCreatePayload) =>
+      request<VcsRepository>("/api/v1/vcs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["vcs-repos"] });
+      await queryClient.invalidateQueries({ queryKey: ["audit"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    }
+  });
+}
+
+export function useCreateVcsToken() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { repositoryId: string; token: VcsAccessTokenCreatePayload }) =>
+      request<VcsAccessTokenCreateResponse>(`/api/v1/vcs/${payload.repositoryId}/tokens`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload.token)
+      }),
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ["vcs-tokens", variables.repositoryId] });
+      await queryClient.invalidateQueries({ queryKey: ["audit"] });
+    }
+  });
+}
+
+export function useRevokeVcsToken() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { repositoryId: string; tokenId: string }) =>
+      request<{ ok: boolean }>(`/api/v1/vcs/${payload.repositoryId}/tokens/${payload.tokenId}`, {
+        method: "DELETE"
+      }),
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ["vcs-tokens", variables.repositoryId] });
+      await queryClient.invalidateQueries({ queryKey: ["audit"] });
+    }
+  });
+}
+
+export function useUpdateVcsRepository() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string; repository: VcsRepositoryUpdatePayload }) =>
+      request<VcsRepository>(`/api/v1/vcs/${payload.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload.repository)
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["vcs-repos"] });
+      await queryClient.invalidateQueries({ queryKey: ["audit"] });
+    }
+  });
+}
+
+export function useRepairVcsRepository() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string }) =>
+      request<VcsRepository>(`/api/v1/vcs/${payload.id}/repair`, {
+        method: "POST"
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["vcs-repos"] });
+      await queryClient.invalidateQueries({ queryKey: ["audit"] });
+    }
+  });
+}
+
+export function useDeleteVcsRepository() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { id: string }) =>
+      request<{ ok: boolean }>(`/api/v1/vcs/${payload.id}`, {
+        method: "DELETE"
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["vcs-repos"] });
+      await queryClient.invalidateQueries({ queryKey: ["audit"] });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    }
   });
 }
 
@@ -699,6 +855,7 @@ export function useUpdateFeatureFlags() {
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       await queryClient.invalidateQueries({ queryKey: ["services"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }
@@ -718,6 +875,8 @@ export function useUpdateSettings() {
       await queryClient.invalidateQueries({ queryKey: ["settings"] });
       await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       await queryClient.invalidateQueries({ queryKey: ["auth"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-objects"] });
+      await queryClient.invalidateQueries({ queryKey: ["ad-readiness"] });
     }
   });
 }

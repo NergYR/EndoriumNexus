@@ -54,6 +54,15 @@ set(NEXUS_STORAGE_SOURCES
   libs/storage/src/database.cpp
 )
 
+set(NEXUS_VCS_SOURCES
+  libs/vcs/src/repository.cpp
+  libs/vcs/src/git_http.cpp
+)
+
+set(NEXUS_APT_SOURCES
+  libs/apt/src/repository.cpp
+)
+
 set(NEXUS_JOBS_SOURCES
   libs/jobs/src/queue.cpp
 )
@@ -63,6 +72,8 @@ set(NEXUS_PROTOCOL_SOURCES
   libs/protocol/src/dhcp.cpp
   libs/protocol/src/ldap.cpp
   libs/protocol/src/kerberos.cpp
+  libs/protocol/src/rpc.cpp
+  libs/protocol/src/smb.cpp
   libs/protocol/src/repo.cpp
 )
 
@@ -89,6 +100,16 @@ target_link_libraries(nexus_storage
 )
 nexus_apply_sanitizers(nexus_storage)
 
+add_library(nexus_vcs ${NEXUS_VCS_SOURCES})
+target_include_directories(nexus_vcs PUBLIC libs/vcs/include)
+target_link_libraries(nexus_vcs
+  PUBLIC
+    nexus_core
+    OpenSSL::Crypto
+    PostgreSQL::PostgreSQL
+)
+nexus_apply_sanitizers(nexus_vcs)
+
 add_library(nexus_jobs ${NEXUS_JOBS_SOURCES})
 target_include_directories(nexus_jobs PUBLIC libs/jobs/include)
 target_link_libraries(nexus_jobs PUBLIC nexus_core)
@@ -99,6 +120,7 @@ target_include_directories(nexus_protocol PUBLIC libs/protocol/include)
 target_link_libraries(nexus_protocol
   PUBLIC
     nexus_core
+    OpenSSL::Crypto
     ZLIB::ZLIB
 )
 nexus_apply_sanitizers(nexus_protocol)
@@ -107,9 +129,27 @@ target_link_libraries(nexus_security PUBLIC nexus_core)
 target_link_libraries(nexus_jobs PUBLIC nexus_core)
 target_link_libraries(nexus_protocol PUBLIC nexus_core)
 
+add_library(nexus_apt ${NEXUS_APT_SOURCES})
+target_include_directories(nexus_apt
+  PUBLIC libs/apt/include
+  PRIVATE ${JSONCPP_INCLUDE_DIRS}
+)
+target_link_libraries(nexus_apt
+  PUBLIC
+    nexus_core
+    nexus_protocol
+    OpenSSL::Crypto
+    PostgreSQL::PostgreSQL
+    ${JSONCPP_LIBRARIES}
+)
+nexus_apply_sanitizers(nexus_apt)
+
 add_executable(nexus-api
   apps/api/main.cpp
   apps/api/platform_state.cpp
+  apps/api/apt_handlers.cpp
+  apps/api/vcs_handlers.cpp
+  apps/api/git_smart_http.cpp
 )
 target_include_directories(nexus-api PRIVATE apps/api)
 target_link_libraries(nexus-api
@@ -117,9 +157,11 @@ target_link_libraries(nexus-api
     Drogon::Drogon
     nexus_core
     nexus_jobs
+    nexus_apt
     nexus_protocol
     nexus_security
     nexus_storage
+    nexus_vcs
 )
 nexus_apply_sanitizers(nexus-api)
 
@@ -175,9 +217,11 @@ if(NEXUS_BUILD_TESTS)
       Drogon::Drogon
       nexus_core
       nexus_jobs
+      nexus_apt
       nexus_protocol
       nexus_security
       nexus_storage
+      nexus_vcs
   )
   add_test(NAME nexus-unit COMMAND nexus-unit)
   nexus_apply_sanitizers(nexus-unit)
@@ -212,4 +256,5 @@ set(CPACK_PACKAGE_NAME "endorium-nexus")
 set(CPACK_PACKAGE_VENDOR "Endorium")
 set(CPACK_PACKAGE_CONTACT "ops@endorium.local")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "git, gnupg, dpkg")
 include(CPack)

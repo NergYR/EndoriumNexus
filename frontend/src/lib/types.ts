@@ -48,6 +48,35 @@ export interface DirectoryObjectPayload extends DirectoryObject {
   password?: string;
 }
 
+export interface ActiveDirectoryAttributeValue {
+  value: string;
+  encoding: "utf8" | "uuid" | "sddl" | "decimal" | "base64" | string;
+}
+
+export interface ActiveDirectoryAttribute {
+  name: string;
+  type: "string" | "guid" | "sid" | "integer" | "security-descriptor" | string;
+  multiValued: boolean;
+  values: ActiveDirectoryAttributeValue[];
+}
+
+export interface ActiveDirectoryObject {
+  objectGuid: string;
+  domainDnsName: string;
+  dn: string;
+  parentDn: string;
+  rdn: string;
+  kind: string;
+  objectSid: string;
+  rid: number;
+  uSNCreated: number;
+  uSNChanged: number;
+  whenCreated: string;
+  whenChanged: string;
+  objectClasses: string[];
+  attributes: Record<string, ActiveDirectoryAttribute>;
+}
+
 export interface DnsRecord {
   name: string;
   type: string;
@@ -139,11 +168,17 @@ export interface ActiveDirectoryDomainCreatePayload {
 export interface ActiveDirectoryReadinessItem {
   id: string;
   label: string;
+  category: string;
   detail: string;
   ready: boolean;
+  blocking: boolean;
 }
 
 export interface ActiveDirectoryReadiness {
+  supported: boolean;
+  dnsName: string;
+  realm: string;
+  baseDn: string;
   items: ActiveDirectoryReadinessItem[];
 }
 
@@ -215,13 +250,19 @@ export interface PkiCertificateCreatePayload {
 }
 
 export interface AptPackage {
+  id: string;
   name: string;
   version: string;
   architecture: string;
   component: string;
   filename: string;
+  storagePath: string;
   sha256: string;
   size: number;
+  controlJson: string;
+  uploadedBy: string;
+  uploadedAt: string;
+  downloadUrl: string;
 }
 
 export interface AptPackagePayload {
@@ -237,6 +278,82 @@ export interface AptRepository {
   distribution: string;
   component: string;
   packages: AptPackage[];
+}
+
+export interface VcsRepository {
+  id: string;
+  name: string;
+  description: string;
+  isPrivate: boolean;
+  is_private?: boolean;
+  httpPushEnabled: boolean;
+  defaultBranch: string;
+  createdAt: string;
+  created_at?: string;
+  updatedAt: string;
+  storageReady: boolean;
+  headTarget: string;
+  cloneUrl: string;
+  pushUrl: string;
+}
+
+export interface VcsRepositoryCreatePayload {
+  name: string;
+  description: string;
+  isPrivate: boolean;
+  httpPushEnabled: boolean;
+  defaultBranch: string;
+}
+
+export interface VcsRepositoryUpdatePayload {
+  description?: string;
+  isPrivate?: boolean;
+  httpPushEnabled?: boolean;
+  defaultBranch?: string;
+}
+
+export interface VcsRef {
+  name: string;
+  shortName: string;
+  type: "branch" | "tag" | "ref";
+  objectId: string;
+}
+
+export interface VcsAccessToken {
+  id: string;
+  repositoryId: string;
+  repositoryName: string;
+  name: string;
+  scope: "read" | "write";
+  tokenPrefix: string;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt: string;
+  revoked: boolean;
+}
+
+export interface VcsAccessTokenCreatePayload {
+  name: string;
+  scope: "read" | "write";
+  expiresAt?: string;
+}
+
+export interface VcsAccessTokenCreateResponse {
+  token: VcsAccessToken;
+  secret: string;
+}
+
+export interface VcsEvent {
+  id: number;
+  repositoryId: string;
+  repositoryName: string;
+  actor: string;
+  action: string;
+  detail: string;
+  refName: string;
+  oldOid: string;
+  newOid: string;
+  happenedAt: string;
 }
 
 export interface AuditEvent {
@@ -258,6 +375,7 @@ export interface JobSummary {
 export interface SettingsSnapshot {
   environment: string;
   domain: string;
+  adPortProfile?: string;
   blobRoot: string;
   stateRoot: string;
   databaseConfigured: boolean;
@@ -269,7 +387,11 @@ export interface SettingsSnapshot {
     http: number;
     ldap: number;
     ldaps: number;
+    gc: number;
     kerberos: number;
+    kpasswd: number;
+    rpc: number;
+    smb: number;
     dnsTcp: number;
     dnsUdp: number;
     dhcp: number;
@@ -278,6 +400,10 @@ export interface SettingsSnapshot {
     baseDn: string;
     organization: string;
     realm: string;
+    siteName: string;
+    domainControllerHost: string;
+    domainControllerAddress: string;
+    keyEncryptionKeyFile?: string;
   };
   dns: {
     primaryNs: string;
@@ -306,6 +432,7 @@ export interface SettingsSnapshot {
 export interface SettingsUpdatePayload {
   environment: string;
   domain: string;
+  adPortProfile?: string;
   blobRoot: string;
   stateRoot: string;
   databaseUrl: string;
@@ -315,7 +442,11 @@ export interface SettingsUpdatePayload {
   httpPort: number;
   ldapPort: number;
   ldapsPort: number;
+  gcPort: number;
   kerberosPort: number;
+  kpasswdPort: number;
+  rpcPort: number;
+  smbPort: number;
   dnsTcpPort: number;
   dnsUdpPort: number;
   dhcpPort: number;
@@ -323,6 +454,10 @@ export interface SettingsUpdatePayload {
     baseDn: string;
     organization: string;
     realm: string;
+    siteName: string;
+    domainControllerHost: string;
+    domainControllerAddress: string;
+    keyEncryptionKeyFile?: string;
   };
   dns: {
     primaryNs: string;

@@ -220,7 +220,7 @@ export function SetupWizardPage() {
   };
 
   if (isLoading || !settings.data) {
-    return <div className="text-sm text-slate-500">Chargement de l'assistant de démarrage...</div>;
+    return <div className="text-sm text-slate-400">Chargement de l'assistant de démarrage...</div>;
   }
 
   return (
@@ -228,12 +228,12 @@ export function SetupWizardPage() {
       <Panel
         title="Setup Wizard"
         eyebrow="First configuration"
-        actions={<Link className="rounded-full border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50" to="/dashboard">Retour au tableau de bord</Link>}
+        actions={<Link className="rounded-full border border-slate-700/70 px-3 py-2 text-sm text-slate-300 hover:bg-slate-900/40" to="/dashboard">Retour au tableau de bord</Link>}
       >
         <div className="grid gap-3 md:grid-cols-3">
           {readiness.map((item) => (
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3" key={item.label}>
-              <p className="text-sm font-medium text-slate-900">{item.label}</p>
+            <div className="rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-3" key={item.label}>
+              <p className="text-sm font-medium text-slate-50">{item.label}</p>
               <p className={["mt-1 text-xs uppercase tracking-[0.16em]", item.done ? "text-emerald-700" : "text-amber-700"].join(" ")}>
                 {item.done ? "Configured" : "Needs setup"}
               </p>
@@ -249,7 +249,7 @@ export function SetupWizardPage() {
         error={error}
         actions={
           <>
-            <button className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-600 disabled:opacity-50" disabled={step === 0} onClick={() => setStep((current) => Math.max(0, current - 1))} type="button">Back</button>
+            <button className="rounded-2xl border border-slate-700/70 px-4 py-3 font-medium text-slate-300 disabled:opacity-50" disabled={step === 0} onClick={() => setStep((current) => Math.max(0, current - 1))} type="button">Back</button>
             {step < steps.length - 1 ? (
               <button className="accent-gradient rounded-2xl px-4 py-3 font-medium text-white" onClick={() => setStep((current) => Math.min(steps.length - 1, current + 1))} type="button">Next</button>
             ) : (
@@ -260,19 +260,19 @@ export function SetupWizardPage() {
       >
         {step === 0 ? (
           <div className="grid gap-3">
-            <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Business domain</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ domain: event.target.value, dnsZone: event.target.value, directoryBaseDn: event.target.value.split(".").filter(Boolean).map((part) => `dc=${part}`).join(","), netbiosName: event.target.value.split(".")[0]?.toUpperCase().slice(0, 15) ?? draft.netbiosName })} value={draft.domain} /></label>
+            <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Business domain</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ domain: event.target.value, dnsZone: event.target.value, directoryBaseDn: event.target.value.split(".").filter(Boolean).map((part) => `dc=${part}`).join(","), netbiosName: event.target.value.split(".")[0]?.toUpperCase().slice(0, 15) ?? draft.netbiosName })} value={draft.domain} /></label>
             <WizardSummary items={[{ label: "Current environment", value: settings.data.environment }, { label: "Default state root", value: settings.data.stateRoot }]} />
           </div>
         ) : null}
         {step === 1 ? (
           <div className="grid gap-3">
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Base DN</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ directoryBaseDn: event.target.value })} value={draft.directoryBaseDn} /></label>
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">NetBIOS name</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ netbiosName: event.target.value.toUpperCase().slice(0, 15) })} value={draft.netbiosName} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Base DN</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ directoryBaseDn: event.target.value })} value={draft.directoryBaseDn} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">NetBIOS name</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ netbiosName: event.target.value.toUpperCase().slice(0, 15) })} value={draft.netbiosName} /></label>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Admin UID</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminUid: event.target.value })} value={draft.adminUid} /></label>
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Temporary password</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminPassword: event.target.value })} type="password" value={draft.adminPassword} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Admin UID</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminUid: event.target.value })} value={draft.adminUid} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Temporary password</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminPassword: event.target.value })} type="password" value={draft.adminPassword} /></label>
             </div>
             <AdvancedSection><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminName: event.target.value })} value={draft.adminName} /><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ adminMail: event.target.value })} value={draft.adminMail} /><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ domainControllerHost: event.target.value })} value={draft.domainControllerHost} /><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => updateDraft({ domainControllerAddress: event.target.value })} value={draft.domainControllerAddress} /></AdvancedSection>
           </div>

@@ -21,6 +21,8 @@ Endorium Nexus is a production-oriented infrastructure suite built around a C++2
 
 The API defaults to `http://127.0.0.1:8080` in development. The frontend runs on `http://127.0.0.1:5173` and proxies `/api` traffic to the backend.
 
+Git Smart HTTP and the signed APT repository need the native tools installed by the Debian bootstrap script: `git`, `dpkg`, `dpkg-dev`, and `gnupg`. The Debian package also declares these runtime dependencies.
+
 ## Root Scripts
 
 If you prefer direct root-level scripts instead of `make`:

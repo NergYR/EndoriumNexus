@@ -1,0 +1,21 @@
+# Build artifacts and local state — never ship these into the image context.
+build/
+frontend/dist/
+frontend/node_modules/
+node_modules/
+var/
+**/*.o
+**/*.a
+
+# VCS / editor / CI
+.git/
+.github/
+.gitignore
+*.log
+.env
+.env.local
+.env.docker
+
+# Docs and scratch
+*.md
+!docker/README.md

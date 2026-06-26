@@ -245,7 +245,7 @@ export function DhcpPage() {
   const optionPreview = useMemo(() => buildOptionsFromForm(form), [form]);
 
   if (pools.isLoading || !pools.data) {
-    return <div className="text-sm text-slate-500">Chargement des pools DHCP...</div>;
+    return <div className="text-sm text-slate-400">Chargement des pools DHCP...</div>;
   }
 
   const beginEdit = (name: string) => {
@@ -303,12 +303,12 @@ export function DhcpPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 md:flex-row md:items-center">
-        <p className="text-sm text-slate-600">
+      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-3 md:flex-row md:items-center">
+        <p className="text-sm text-slate-300">
           Modifications are saved immediately but require a service restart to take effect.
         </p>
         <button
-          className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+          className="rounded-full border border-slate-700/70 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-900/40 disabled:opacity-60"
           onClick={() => restartService.mutate()}
           type="button"
           disabled={restartService.isPending}
@@ -323,17 +323,17 @@ export function DhcpPage() {
           <div className="space-y-5">
             {pools.data.length ? (
               pools.data.map((pool) => (
-                <section className="rounded-3xl border border-slate-200 bg-white p-5" key={pool.name}>
+                <section className="rounded-3xl border border-slate-700/70 bg-slate-900/50 p-5" key={pool.name}>
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <h3 className="text-lg font-semibold text-slate-900">{pool.name}</h3>
-                      <p className="text-sm text-slate-600">
+                      <h3 className="text-lg font-semibold text-slate-50">{pool.name}</h3>
+                      <p className="text-sm text-slate-300">
                         {pool.subnet} - {pool.rangeStart} to {pool.rangeEnd}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button
-                        className="rounded-full border border-slate-200 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-600 transition hover:bg-slate-50"
+                        className="rounded-full border border-slate-700/70 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-300 transition hover:bg-slate-900/40"
                         onClick={() => beginEdit(pool.name)}
                         type="button"
                       >
@@ -346,7 +346,7 @@ export function DhcpPage() {
                       >
                         Delete
                       </button>
-                      <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-600">
+                      <div className="rounded-full border border-slate-700/70 bg-slate-900/40 px-3 py-1 text-xs uppercase tracking-[0.18em] text-slate-300">
                         {pool.leases.length} leases
                       </div>
                     </div>
@@ -355,9 +355,9 @@ export function DhcpPage() {
                   {Object.keys(pool.options).length ? (
                     <div className="mt-4 grid gap-2 md:grid-cols-2">
                       {Object.entries(pool.options).map(([key, value]) => (
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2" key={`${pool.name}-${key}`}>
-                          <p className="text-xs uppercase tracking-[0.16em] text-slate-500">{key}</p>
-                          <p className="mt-1 break-all text-sm text-slate-700">{value}</p>
+                        <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 px-3 py-2" key={`${pool.name}-${key}`}>
+                          <p className="text-xs uppercase tracking-[0.16em] text-slate-400">{key}</p>
+                          <p className="mt-1 break-all text-sm text-slate-200">{value}</p>
                         </div>
                       ))}
                     </div>
@@ -365,10 +365,10 @@ export function DhcpPage() {
 
                   <div className="mt-4 grid gap-3 lg:grid-cols-2">
                     {pool.leases.map((lease) => (
-                      <article className="rounded-2xl border border-slate-200 bg-white px-4 py-3" key={lease.ipAddress}>
-                        <p className="font-medium text-slate-900">{lease.ipAddress}</p>
-                        <p className="mt-1 text-sm text-slate-600">{lease.hostname}</p>
-                        <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+                      <article className="rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-3" key={lease.ipAddress}>
+                        <p className="font-medium text-slate-50">{lease.ipAddress}</p>
+                        <p className="mt-1 text-sm text-slate-300">{lease.hostname}</p>
+                        <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-400">
                           {lease.clientId} - {lease.state}
                         </p>
                       </article>
@@ -377,7 +377,7 @@ export function DhcpPage() {
                 </section>
               ))
             ) : (
-              <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              <p className="rounded-2xl border border-slate-700/70 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">
                 No DHCP pool is configured yet. Create a pool to start allocating leases.
               </p>
             )}
@@ -419,7 +419,7 @@ export function DhcpPage() {
             }}
           >
             <label className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Preset</span>
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Preset</span>
               <select
                 className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => applyTemplate(event.target.value as PoolTemplateValue)}
@@ -433,10 +433,10 @@ export function DhcpPage() {
               </select>
             </label>
 
-            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">Addressing</p>
+            <div className="grid gap-3 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+              <p className="text-sm font-medium text-slate-50">Addressing</p>
               <label className="grid gap-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Pool name</span>
+                <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Pool name</span>
                 <input
                   className="field rounded-2xl px-4 py-3 outline-none"
                   onChange={(event) => {
@@ -447,7 +447,7 @@ export function DhcpPage() {
                 />
               </label>
               <label className="grid gap-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Subnet</span>
+                <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Subnet</span>
                 <input
                   className="field rounded-2xl px-4 py-3 outline-none"
                   onChange={(event) => {
@@ -460,7 +460,7 @@ export function DhcpPage() {
               </label>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Range start</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Range start</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => {
@@ -471,7 +471,7 @@ export function DhcpPage() {
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Range end</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Range end</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => {
@@ -484,11 +484,11 @@ export function DhcpPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">Client Network Options</p>
+            <div className="grid gap-3 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+              <p className="text-sm font-medium text-slate-50">Client Network Options</p>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Router / gateway</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Router / gateway</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, router: event.target.value }))}
@@ -497,7 +497,7 @@ export function DhcpPage() {
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Broadcast address</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Broadcast address</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, broadcastAddress: event.target.value }))}
@@ -508,7 +508,7 @@ export function DhcpPage() {
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Primary DNS</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Primary DNS</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, dns: event.target.value }))}
@@ -517,7 +517,7 @@ export function DhcpPage() {
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Secondary DNS</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Secondary DNS</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, dnsSecondary: event.target.value }))}
@@ -528,7 +528,7 @@ export function DhcpPage() {
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Domain name</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Domain name</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, domainName: event.target.value }))}
@@ -537,7 +537,7 @@ export function DhcpPage() {
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Domain search</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Domain search</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, domainSearch: event.target.value }))}
@@ -548,7 +548,7 @@ export function DhcpPage() {
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">NTP server</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">NTP server</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, ntpServer: event.target.value }))}
@@ -557,7 +557,7 @@ export function DhcpPage() {
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Interface MTU</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Interface MTU</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, mtu: event.target.value }))}
@@ -568,11 +568,11 @@ export function DhcpPage() {
               </div>
             </div>
 
-            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">Lease and Boot Options</p>
+            <div className="grid gap-3 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
+              <p className="text-sm font-medium text-slate-50">Lease and Boot Options</p>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Lease time</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Lease time</span>
                   <select
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, leaseTime: event.target.value }))}
@@ -589,7 +589,7 @@ export function DhcpPage() {
                   </select>
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Max lease time</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Max lease time</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, maxLeaseTime: event.target.value }))}
@@ -600,7 +600,7 @@ export function DhcpPage() {
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">TFTP server</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">TFTP server</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, tftpServer: event.target.value }))}
@@ -609,7 +609,7 @@ export function DhcpPage() {
                   />
                 </label>
                 <label className="grid gap-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Next server</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Next server</span>
                   <input
                     className="field rounded-2xl px-4 py-3 outline-none"
                     onChange={(event) => setForm((current) => ({ ...current, nextServer: event.target.value }))}
@@ -619,7 +619,7 @@ export function DhcpPage() {
                 </label>
               </div>
               <label className="grid gap-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Boot file</span>
+                <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Boot file</span>
                 <input
                   className="field rounded-2xl px-4 py-3 outline-none"
                   onChange={(event) => setForm((current) => ({ ...current, bootFile: event.target.value }))}
@@ -629,9 +629,9 @@ export function DhcpPage() {
               </label>
             </div>
 
-            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div className="grid gap-3 rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <p className="text-sm font-medium text-slate-900">Advanced Options</p>
+                <p className="text-sm font-medium text-slate-50">Advanced Options</p>
                 <select
                   className="field rounded-2xl px-4 py-3 text-sm outline-none"
                   defaultValue=""
@@ -682,7 +682,7 @@ export function DhcpPage() {
               ))}
 
               <button
-                className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                className="rounded-2xl border border-slate-700/70 px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-900/40"
                 onClick={() => addAdvancedOption()}
                 type="button"
               >
@@ -690,9 +690,9 @@ export function DhcpPage() {
               </button>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Option payload</p>
-              <pre className="mt-2 overflow-x-auto text-sm text-slate-700">{JSON.stringify(optionPreview, null, 2)}</pre>
+            <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Option payload</p>
+              <pre className="mt-2 overflow-x-auto text-sm text-slate-200">{JSON.stringify(optionPreview, null, 2)}</pre>
             </div>
 
             <div className="flex flex-wrap gap-3">
@@ -701,7 +701,7 @@ export function DhcpPage() {
               </button>
               {editingPoolName ? (
                 <button
-                  className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-600 transition hover:bg-slate-50"
+                  className="rounded-2xl border border-slate-700/70 px-4 py-3 font-medium text-slate-300 transition hover:bg-slate-900/40"
                   onClick={resetForm}
                   type="button"
                 >

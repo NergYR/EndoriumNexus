@@ -3,6 +3,7 @@
 #include <libpq-fe.h>
 
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -20,6 +21,20 @@ std::string read_file(const std::filesystem::path& path) {
     std::ostringstream buffer;
     buffer << input.rdbuf();
     return buffer.str();
+}
+
+std::string pq_error(PGconn* connection, PGresult* result, const std::string& fallback) {
+    const char* result_error = result != nullptr ? PQresultErrorMessage(result) : nullptr;
+    if (result_error != nullptr && std::strlen(result_error) > 0) {
+        return result_error;
+    }
+
+    const char* connection_error = connection != nullptr ? PQerrorMessage(connection) : nullptr;
+    if (connection_error != nullptr && std::strlen(connection_error) > 0) {
+        return connection_error;
+    }
+
+    return fallback;
 }
 
 }  // namespace
@@ -55,7 +70,7 @@ std::vector<std::filesystem::path> Database::pending_migrations(const std::files
 
     PGconn* connection = PQconnectdb(connection_string_.c_str());
     if (PQstatus(connection) != CONNECTION_OK) {
-        const std::string error = PQerrorMessage(connection);
+        const std::string error = pq_error(connection, nullptr, "database connection failed");
         PQfinish(connection);
         throw std::runtime_error(error);
     }
@@ -67,7 +82,7 @@ std::vector<std::filesystem::path> Database::pending_migrations(const std::files
         )
     )SQL");
     if (PQresultStatus(create_result) != PGRES_COMMAND_OK) {
-        const std::string error = PQerrorMessage(connection);
+        const std::string error = pq_error(connection, create_result, "unable to create schema_migrations");
         PQclear(create_result);
         PQfinish(connection);
         throw std::runtime_error(error);
@@ -76,7 +91,7 @@ std::vector<std::filesystem::path> Database::pending_migrations(const std::files
 
     auto* select_result = PQexec(connection, "select version from schema_migrations");
     if (PQresultStatus(select_result) != PGRES_TUPLES_OK) {
-        const std::string error = PQerrorMessage(connection);
+        const std::string error = pq_error(connection, select_result, "unable to load applied migrations");
         PQclear(select_result);
         PQfinish(connection);
         throw std::runtime_error(error);
@@ -109,14 +124,14 @@ void Database::apply_migrations(const std::filesystem::path& migrations_dir) con
     for (const auto& path : pending_migrations(migrations_dir)) {
         PGconn* connection = PQconnectdb(connection_string_.c_str());
         if (PQstatus(connection) != CONNECTION_OK) {
-            const std::string error = PQerrorMessage(connection);
+            const std::string error = pq_error(connection, nullptr, "database connection failed");
             PQfinish(connection);
             throw std::runtime_error(error);
         }
 
         auto* begin_result = PQexec(connection, "begin");
         if (PQresultStatus(begin_result) != PGRES_COMMAND_OK) {
-            const std::string error = PQerrorMessage(connection);
+            const std::string error = pq_error(connection, begin_result, "unable to begin migration transaction");
             PQclear(begin_result);
             PQfinish(connection);
             throw std::runtime_error(error);
@@ -125,7 +140,7 @@ void Database::apply_migrations(const std::filesystem::path& migrations_dir) con
 
         auto* migration_result = PQexec(connection, read_file(path).c_str());
         if (PQresultStatus(migration_result) != PGRES_COMMAND_OK) {
-            const std::string error = PQerrorMessage(connection);
+            const std::string error = pq_error(connection, migration_result, "migration failed: " + path.filename().string());
             PQclear(migration_result);
             PQfinish(connection);
             throw std::runtime_error(error);
@@ -135,7 +150,7 @@ void Database::apply_migrations(const std::filesystem::path& migrations_dir) con
         const std::string insert_sql = "insert into schema_migrations(version) values('" + path.filename().string() + "')";
         auto* insert_result = PQexec(connection, insert_sql.c_str());
         if (PQresultStatus(insert_result) != PGRES_COMMAND_OK) {
-            const std::string error = PQerrorMessage(connection);
+            const std::string error = pq_error(connection, insert_result, "unable to record migration: " + path.filename().string());
             PQclear(insert_result);
             PQfinish(connection);
             throw std::runtime_error(error);
@@ -144,7 +159,7 @@ void Database::apply_migrations(const std::filesystem::path& migrations_dir) con
 
         auto* commit_result = PQexec(connection, "commit");
         if (PQresultStatus(commit_result) != PGRES_COMMAND_OK) {
-            const std::string error = PQerrorMessage(connection);
+            const std::string error = pq_error(connection, commit_result, "unable to commit migration transaction");
             PQclear(commit_result);
             PQfinish(connection);
             throw std::runtime_error(error);

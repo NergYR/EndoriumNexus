@@ -202,7 +202,7 @@ export function DirectoryPage() {
   }, [directory.data, filteredObjects, selectedDn]);
 
   if (directory.isLoading || !directory.data || adDomain.isLoading || readiness.isLoading || joinGuide.isLoading) {
-    return <div className="text-sm text-slate-500">Chargement de l'annuaire...</div>;
+    return <div className="text-sm text-slate-400">Chargement de l'annuaire...</div>;
   }
 
   const openWizard = (template: TemplateKey, object?: DirectoryObject) => {
@@ -251,7 +251,7 @@ export function DirectoryPage() {
     <div className="space-y-6">
       <Panel
         title="Windows Domain"
-        eyebrow="Active Directory readiness"
+        eyebrow={readiness.data?.supported ? "Active Directory supported" : "Active Directory blocked"}
         actions={
           adDomain.data ? null : (
             <button className="accent-gradient rounded-2xl px-4 py-3 text-sm font-medium text-slate-950" onClick={() => setDomainWizardOpen(true)} type="button">
@@ -261,7 +261,7 @@ export function DirectoryPage() {
         }
       >
         <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-4">
             {adDomain.data ? (
               <WizardSummary
                 items={[
@@ -273,17 +273,18 @@ export function DirectoryPage() {
                 ]}
               />
             ) : (
-              <p className="text-sm text-slate-600">Aucun domaine Windows n'est configuré. Créez-en un avant de préparer des clients Windows.</p>
+              <p className="text-sm text-slate-300">Aucun domaine Windows n'est configuré. Créez-en un avant de préparer des clients Windows.</p>
             )}
           </div>
           <div className="grid gap-2 md:grid-cols-2">
             {(readiness.data?.items ?? []).map((item) => (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3" key={item.id}>
-                <p className="text-sm font-medium text-slate-900">{item.label}</p>
+              <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 px-4 py-3" key={item.id}>
+                <p className="text-[0.65rem] uppercase tracking-[0.16em] text-slate-500">{item.category}</p>
+                <p className="mt-1 text-sm font-medium text-slate-50">{item.label}</p>
                 <p className={["mt-1 text-xs uppercase tracking-[0.16em]", item.ready ? "text-emerald-200" : "text-amber-200"].join(" ")}>
-                  {item.ready ? "Ready" : "Blocked"}
+                  {item.ready ? "Ready" : item.blocking ? "Blocked" : "Pending"}
                 </p>
-                <p className="mt-2 text-xs text-slate-500">{item.detail}</p>
+                <p className="mt-2 text-xs text-slate-400">{item.detail}</p>
               </div>
             ))}
           </div>
@@ -299,7 +300,7 @@ export function DirectoryPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             {(Object.keys(TEMPLATES) as TemplateKey[]).map((key) => (
-              <button className="rounded-full border border-slate-200 px-3 py-2 text-xs uppercase tracking-[0.14em] text-slate-600 hover:bg-slate-50" key={key} onClick={() => openWizard(key)} type="button">
+              <button className="rounded-full border border-slate-700/70 px-3 py-2 text-xs uppercase tracking-[0.14em] text-slate-300 hover:bg-slate-900/40" key={key} onClick={() => openWizard(key)} type="button">
                     {TEMPLATES[key].label}
               </button>
             ))}
@@ -307,14 +308,14 @@ export function DirectoryPage() {
         }
       >
         <div className="grid min-h-[36rem] gap-4 xl:grid-cols-[260px_1fr_360px]">
-          <aside className="rounded-2xl border border-slate-200 bg-white p-3">
-            <p className="px-2 text-xs uppercase tracking-[0.18em] text-slate-500">Tree</p>
+          <aside className="rounded-2xl border border-slate-700/70 bg-slate-900/50 p-3">
+            <p className="px-2 text-xs uppercase tracking-[0.18em] text-slate-400">Tree</p>
             <div className="mt-3 space-y-1">
               {containers.map((container) => (
                 <button
                   className={[
                     "w-full rounded-xl px-3 py-2 text-left text-sm transition",
-                    selectedParent === container ? "bg-blue-50 text-slate-900" : "text-slate-600 hover:bg-slate-50"
+                    selectedParent === container ? "bg-cyan-400/10 text-slate-50" : "text-slate-300 hover:bg-slate-900/40"
                   ].join(" ")}
                   key={container}
                   onClick={() => setSelectedParent(container)}
@@ -328,8 +329,8 @@ export function DirectoryPage() {
 
           <section className="surface p-3">
             <input className="field mb-3 w-full rounded-2xl px-4 py-3 outline-none" onChange={(event) => setQuery(event.target.value)} placeholder="Search users, groups, OUs..." value={query} />
-            <div className="overflow-hidden rounded-2xl border border-slate-200">
-              <div className="grid grid-cols-[1fr_130px_120px] bg-slate-50 px-3 py-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+            <div className="overflow-hidden rounded-2xl border border-slate-700/70">
+              <div className="grid grid-cols-[1fr_130px_120px] bg-slate-900/40 px-3 py-2 text-xs uppercase tracking-[0.16em] text-slate-400">
                 <span>Name</span><span>Type</span><span>Account</span>
               </div>
               <div className="max-h-[30rem] overflow-auto">
@@ -337,18 +338,18 @@ export function DirectoryPage() {
                   <button
                     className={[
                       "grid w-full grid-cols-[1fr_130px_120px] gap-3 border-t border-slate-100 px-3 py-3 text-left text-sm",
-                      selectedObject?.dn === object.dn ? "bg-blue-50" : "hover:bg-slate-50"
+                      selectedObject?.dn === object.dn ? "bg-cyan-400/10" : "hover:bg-slate-900/40"
                     ].join(" ")}
                     key={object.dn}
                     onClick={() => setSelectedDn(object.dn)}
                     type="button"
                   >
                     <span className="min-w-0">
-                      <span className="block truncate font-medium text-slate-100">{objectLabel(object)}</span>
-                      <span className="block truncate text-xs text-slate-500">{object.dn}</span>
+                      <span className="block truncate font-medium text-slate-50">{objectLabel(object)}</span>
+                      <span className="block truncate text-xs text-slate-400">{object.dn}</span>
                     </span>
                     <span className="text-slate-300">{object.kind}</span>
-                    <span className={object.attributes.userPasswordHash ? "text-emerald-200" : "text-slate-500"}>{object.attributes.userPasswordHash ? "Secret set" : "No secret"}</span>
+                    <span className={object.attributes.userPasswordHash ? "text-emerald-200" : "text-slate-400"}>{object.attributes.userPasswordHash ? "Secret set" : "No secret"}</span>
                   </button>
                 ))}
               </div>
@@ -360,11 +361,11 @@ export function DirectoryPage() {
               <>
                 <div className="mb-4 flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Properties</p>
-                    <h3 className="mt-2 break-all text-lg font-semibold text-slate-100">{objectLabel(selectedObject)}</h3>
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Properties</p>
+                    <h3 className="mt-2 break-all text-lg font-semibold text-slate-50">{objectLabel(selectedObject)}</h3>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <button className="rounded-full border border-slate-200 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-600" onClick={() => openWizard((formFromObject(selectedObject).template), selectedObject)} type="button">Edit</button>
+                    <button className="rounded-full border border-slate-700/70 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300" onClick={() => openWizard((formFromObject(selectedObject).template), selectedObject)} type="button">Edit</button>
                     <button className="rounded-full border border-rose-300/20 px-3 py-1 text-xs uppercase tracking-[0.16em] text-rose-100" onClick={() => deleteObject.mutate({ dn: selectedObject.dn })} type="button">Delete</button>
                   </div>
                 </div>
@@ -373,7 +374,7 @@ export function DirectoryPage() {
                     { id: "general", label: "General", content: <WizardSummary items={[{ label: "DN", value: selectedObject.dn }, { label: "Parent", value: selectedObject.parentDn || "Domain root" }, { label: "Kind", value: selectedObject.kind }]} /> },
                     { id: "account", label: "Account", content: <WizardSummary items={[{ label: "SAM account", value: selectedObject.attributes.sAMAccountName ?? selectedObject.attributes.uid ?? "Not set" }, { label: "UPN", value: selectedObject.attributes.userPrincipalName ?? "Not set" }, { label: "UAC", value: selectedObject.attributes.userAccountControl ?? "Not set" }, { label: "Secret", value: selectedObject.attributes.userPasswordHash ? "Secret configured" : "No secret configured" }]} /> },
                     { id: "membership", label: "Membership", content: <p className="text-sm text-slate-300">{selectedObject.attributes.member ?? "No membership attribute configured."}</p> },
-                    { id: "attributes", label: "Attributes", content: <dl className="grid gap-2 text-sm">{Object.entries(selectedObject.attributes).map(([key, value]) => <div className="grid gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2" key={key}><dt className="text-xs uppercase tracking-[0.16em] text-slate-500">{key}</dt><dd className="break-all text-slate-900">{key === "userPasswordHash" ? "Secret configured" : value}</dd></div>)}</dl> },
+                    { id: "attributes", label: "Attributes", content: <dl className="grid gap-2 text-sm">{Object.entries(selectedObject.attributes).map(([key, value]) => <div className="grid gap-1 rounded-xl border border-slate-700/70 bg-slate-900/40 px-3 py-2" key={key}><dt className="text-xs uppercase tracking-[0.16em] text-slate-400">{key}</dt><dd className="break-all text-slate-50">{key === "userPasswordHash" ? "Secret configured" : value}</dd></div>)}</dl> },
                     { id: "advanced", label: "Advanced", content: <WizardSummary items={[{ label: "Object classes", value: selectedObject.objectClasses.join(", ") }, { label: "Raw DN", value: selectedObject.dn }]} /> }
                   ]}
                 />
@@ -393,8 +394,8 @@ export function DirectoryPage() {
           error={formError ?? createObject.error?.message ?? updateObject.error?.message ?? deleteObject.error?.message}
           actions={
             <>
-              <button className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-600" onClick={() => setWizardOpen(false)} type="button">Close</button>
-              <button className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-600 disabled:opacity-50" disabled={wizardStep === 0} onClick={() => setWizardStep((current) => Math.max(0, current - 1))} type="button">Back</button>
+              <button className="rounded-2xl border border-slate-700/70 px-4 py-3 font-medium text-slate-300" onClick={() => setWizardOpen(false)} type="button">Close</button>
+              <button className="rounded-2xl border border-slate-700/70 px-4 py-3 font-medium text-slate-300 disabled:opacity-50" disabled={wizardStep === 0} onClick={() => setWizardStep((current) => Math.max(0, current - 1))} type="button">Back</button>
               {wizardStep < wizardSteps.length - 1 ? (
                 <button className="accent-gradient rounded-2xl px-4 py-3 font-medium text-slate-950" onClick={() => setWizardStep((current) => Math.min(wizardSteps.length - 1, current + 1))} type="button">Next</button>
               ) : (
@@ -406,18 +407,18 @@ export function DirectoryPage() {
           {wizardStep === 0 ? (
             <div className="grid gap-3 md:grid-cols-2">
               {(Object.keys(TEMPLATES) as TemplateKey[]).map((key) => (
-                <button className={["rounded-2xl border px-4 py-4 text-left transition", form.template === key ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"].join(" ")} key={key} onClick={() => applyTemplate(key)} type="button">
-                  <p className="font-medium text-slate-900">{TEMPLATES[key].label}</p>
-                  <p className="mt-1 text-sm text-slate-500">{TEMPLATES[key].objectClasses.join(", ")}</p>
+                <button className={["rounded-2xl border px-4 py-4 text-left transition", form.template === key ? "border-cyan-400/30 bg-cyan-400/10" : "border-slate-700/70 bg-slate-900/50 hover:bg-slate-900/40"].join(" ")} key={key} onClick={() => applyTemplate(key)} type="button">
+                  <p className="font-medium text-slate-50">{TEMPLATES[key].label}</p>
+                  <p className="mt-1 text-sm text-slate-400">{TEMPLATES[key].objectClasses.join(", ")}</p>
                 </button>
               ))}
             </div>
           ) : null}
           {wizardStep === 1 ? (
             <div className="grid gap-3">
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Distinguished Name</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setForm((current) => ({ ...current, dn: event.target.value }))} value={form.dn} /></label>
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Parent container</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setForm((current) => ({ ...current, parentDn: event.target.value }))} value={form.parentDn} /></label>
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Password</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder={editingDn ? "Leave blank to keep existing secret" : "Optional"} type="password" value={form.password} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Distinguished Name</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setForm((current) => ({ ...current, dn: event.target.value }))} value={form.dn} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Parent container</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setForm((current) => ({ ...current, parentDn: event.target.value }))} value={form.parentDn} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Password</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder={editingDn ? "Leave blank to keep existing secret" : "Optional"} type="password" value={form.password} /></label>
             </div>
           ) : null}
           {wizardStep === 2 ? (
@@ -431,7 +432,7 @@ export function DirectoryPage() {
                     <button className="rounded-2xl border border-rose-300/20 px-4 py-3 text-sm text-rose-100" onClick={() => setForm((current) => ({ ...current, attributes: current.attributes.filter((entry) => entry.id !== row.id) }))} type="button">Remove</button>
                   </div>
                 ))}
-                <button className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600" onClick={() => setForm((current) => ({ ...current, attributes: [...current.attributes, { id: makeId(), key: "", value: "" }] }))} type="button">Add attribute</button>
+                <button className="rounded-2xl border border-slate-700/70 px-4 py-3 text-sm font-medium text-slate-300" onClick={() => setForm((current) => ({ ...current, attributes: [...current.attributes, { id: makeId(), key: "", value: "" }] }))} type="button">Add attribute</button>
               </AdvancedSection>
             </div>
           ) : null}
@@ -454,8 +455,8 @@ export function DirectoryPage() {
           error={createDomain.error?.message}
           actions={
             <>
-              <button className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-600" onClick={() => setDomainWizardOpen(false)} type="button">Close</button>
-              <button className="rounded-2xl border border-slate-200 px-4 py-3 font-medium text-slate-600 disabled:opacity-50" disabled={domainStep === 0} onClick={() => setDomainStep((current) => Math.max(0, current - 1))} type="button">Back</button>
+              <button className="rounded-2xl border border-slate-700/70 px-4 py-3 font-medium text-slate-300" onClick={() => setDomainWizardOpen(false)} type="button">Close</button>
+              <button className="rounded-2xl border border-slate-700/70 px-4 py-3 font-medium text-slate-300 disabled:opacity-50" disabled={domainStep === 0} onClick={() => setDomainStep((current) => Math.max(0, current - 1))} type="button">Back</button>
               {domainStep < 3 ? (
                 <button className="accent-gradient rounded-2xl px-4 py-3 font-medium text-slate-950" onClick={() => setDomainStep((current) => Math.min(3, current + 1))} type="button">Next</button>
               ) : (
@@ -466,22 +467,22 @@ export function DirectoryPage() {
         >
           {domainStep === 0 ? (
             <div className="grid gap-3">
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">DNS domain</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, dnsName: event.target.value, baseDn: event.target.value.split(".").filter(Boolean).map((part) => `dc=${part}`).join(","), netbiosName: event.target.value.split(".")[0]?.toUpperCase().slice(0, 15) ?? current.netbiosName }))} value={domainForm.dnsName} /></label>
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">NetBIOS name</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, netbiosName: event.target.value.toUpperCase().slice(0, 15) }))} value={domainForm.netbiosName} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">DNS domain</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, dnsName: event.target.value, baseDn: event.target.value.split(".").filter(Boolean).map((part) => `dc=${part}`).join(","), netbiosName: event.target.value.split(".")[0]?.toUpperCase().slice(0, 15) ?? current.netbiosName }))} value={domainForm.dnsName} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">NetBIOS name</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, netbiosName: event.target.value.toUpperCase().slice(0, 15) }))} value={domainForm.netbiosName} /></label>
               <AdvancedSection title="LDAP naming context"><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, baseDn: event.target.value }))} value={domainForm.baseDn} /></AdvancedSection>
             </div>
           ) : null}
           {domainStep === 1 ? (
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">SAM account</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, adminSamAccount: event.target.value }))} value={domainForm.adminSamAccount} /></label>
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Display name</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, adminDisplayName: event.target.value }))} value={domainForm.adminDisplayName} /></label>
-              <label className="grid gap-2 md:col-span-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Temporary password</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, adminPassword: event.target.value }))} type="password" value={domainForm.adminPassword} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">SAM account</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, adminSamAccount: event.target.value }))} value={domainForm.adminSamAccount} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Display name</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, adminDisplayName: event.target.value }))} value={domainForm.adminDisplayName} /></label>
+              <label className="grid gap-2 md:col-span-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Temporary password</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, adminPassword: event.target.value }))} type="password" value={domainForm.adminPassword} /></label>
             </div>
           ) : null}
           {domainStep === 2 ? (
             <div className="grid gap-3 md:grid-cols-2">
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Controller hostname</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, domainControllerHost: event.target.value }))} value={domainForm.domainControllerHost} /></label>
-              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-500">Controller IP</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, domainControllerAddress: event.target.value }))} value={domainForm.domainControllerAddress} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Controller hostname</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, domainControllerHost: event.target.value }))} value={domainForm.domainControllerHost} /></label>
+              <label className="grid gap-2"><span className="text-xs uppercase tracking-[0.18em] text-slate-400">Controller IP</span><input className="field rounded-2xl px-4 py-3 outline-none" onChange={(event) => setDomainForm((current) => ({ ...current, domainControllerAddress: event.target.value }))} value={domainForm.domainControllerAddress} /></label>
             </div>
           ) : null}
           {domainStep === 3 ? (

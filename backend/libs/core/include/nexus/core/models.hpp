@@ -112,13 +112,19 @@ struct PkiCertificate {
 };
 
 struct AptPackage {
+    std::string id;
     std::string name;
     std::string version;
     std::string architecture;
     std::string component;
     std::string filename;
+    std::string storage_path;
     std::string sha256;
     std::size_t size{0};
+    std::string control_json;
+    std::string uploaded_by;
+    std::string uploaded_at;
+    std::string download_url;
 };
 
 struct AptRepository {

@@ -269,7 +269,7 @@ export function PkiPage() {
   }, [assistant.data?.insights, authorities.data?.length, certificates.data?.length, revocations.data?.length]);
 
   if (assistant.isLoading || authorities.isLoading || certificates.isLoading || revocations.isLoading || !authorities.data || !certificates.data || !revocations.data || !assistant.data) {
-    return <div className="text-sm text-slate-500">Chargement de la PKI...</div>;
+    return <div className="text-sm text-slate-400">Chargement de la PKI...</div>;
   }
 
   const authorityName = activeAuthority?.name ?? certificateForm.authorityName;
@@ -321,22 +321,22 @@ export function PkiPage() {
           <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="space-y-4">
               <div>
-                <p className="text-sm text-slate-700">{assistant.data.headline}</p>
-                <p className="mt-2 text-sm text-slate-500">Choisissez un profil et laissez l'assistant préremplir le chemin le plus utile.</p>
+                <p className="text-sm text-slate-200">{assistant.data.headline}</p>
+                <p className="mt-2 text-sm text-slate-400">Choisissez un profil et laissez l'assistant préremplir le chemin le plus utile.</p>
               </div>
               <div className="grid gap-2 md:grid-cols-2">
                 {PKI_PROFILES.map((profile) => (
                   <button
                     className={[
                       "rounded-2xl border px-4 py-3 text-left transition",
-                      selectedProfileId === profile.id ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-slate-300"
+                      selectedProfileId === profile.id ? "border-cyan-400/30 bg-cyan-400/10" : "border-slate-700/70 bg-slate-900/50 hover:border-slate-600/70"
                     ].join(" ")}
                     key={profile.id}
                     onClick={() => applyProfile(profile)}
                     type="button"
                   >
-                    <p className="font-semibold text-slate-900">{profile.label}</p>
-                    <p className="mt-1 text-sm text-slate-600">{profile.description}</p>
+                    <p className="font-semibold text-slate-50">{profile.label}</p>
+                    <p className="mt-1 text-sm text-slate-300">{profile.description}</p>
                   </button>
                 ))}
               </div>
@@ -359,7 +359,7 @@ export function PkiPage() {
               <button
                 className={[
                   "rounded-3xl border p-4 text-left transition",
-                  activeAuthority?.name === authority.name ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-white hover:border-slate-300"
+                  activeAuthority?.name === authority.name ? "border-cyan-400/30 bg-cyan-400/10" : "border-slate-700/70 bg-slate-900/50 hover:border-slate-600/70"
                 ].join(" ")}
                 key={authority.name}
                 onClick={() => {
@@ -368,12 +368,12 @@ export function PkiPage() {
                 }}
                 type="button"
               >
-                <p className="font-semibold text-slate-900">{authority.name}</p>
-                <p className="mt-1 text-sm text-slate-600">{authority.commonName}</p>
-                <p className="mt-2 break-all text-xs uppercase tracking-[0.16em] text-slate-500">{authority.serial}</p>
+                <p className="font-semibold text-slate-50">{authority.name}</p>
+                <p className="mt-1 text-sm text-slate-300">{authority.commonName}</p>
+                <p className="mt-2 break-all text-xs uppercase tracking-[0.16em] text-slate-400">{authority.serial}</p>
               </button>
             )) : (
-              <p className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              <p className="rounded-2xl border border-slate-700/70 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">
                 No authority exists yet. Create a root CA to issue leaf certificates.
               </p>
             )}
@@ -383,12 +383,12 @@ export function PkiPage() {
         <Panel title="Issued Certificates" eyebrow="Leaf Material">
           <div className="space-y-3">
             {activeCertificates.map((certificate) => (
-              <article className="rounded-2xl border border-slate-200 bg-white px-4 py-4" key={certificate.serial}>
+              <article className="rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-4" key={certificate.serial}>
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
-                    <p className="font-medium text-slate-900">{certificate.commonName}</p>
-                    <p className="mt-1 text-sm text-slate-600">{certificate.sans.join(", ") || "No SAN"}</p>
-                    <p className="mt-2 break-all text-xs uppercase tracking-[0.18em] text-slate-500">{certificate.serial}</p>
+                    <p className="font-medium text-slate-50">{certificate.commonName}</p>
+                    <p className="mt-1 text-sm text-slate-300">{certificate.sans.join(", ") || "No SAN"}</p>
+                    <p className="mt-2 break-all text-xs uppercase tracking-[0.18em] text-slate-400">{certificate.serial}</p>
                   </div>
                   <button
                     className="rounded-full border border-rose-200 px-3 py-1 text-xs uppercase tracking-[0.16em] text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
@@ -406,9 +406,9 @@ export function PkiPage() {
                   </button>
                 </div>
                 <details className="mt-3">
-                  <summary className="cursor-pointer text-sm text-slate-600">Afficher les PEM</summary>
-                  <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">{certificate.certificatePem}</pre>
-                  <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">{certificate.privateKeyPem}</pre>
+                  <summary className="cursor-pointer text-sm text-slate-300">Afficher les PEM</summary>
+                  <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4 text-xs text-slate-200">{certificate.certificatePem}</pre>
+                  <pre className="mt-3 max-h-72 overflow-auto rounded-2xl border border-slate-700/70 bg-slate-900/40 p-4 text-xs text-slate-200">{certificate.privateKeyPem}</pre>
                 </details>
               </article>
             ))}
@@ -418,9 +418,9 @@ export function PkiPage() {
         <Panel title="Revocation Register" eyebrow="CRL Feed">
           <div className="space-y-3">
             {revocations.data.map((revocation) => (
-              <article className="rounded-2xl border border-slate-200 bg-white px-4 py-4" key={revocation.serial}>
-                <p className="font-medium text-slate-900">{revocation.commonName || revocation.serial}</p>
-                <p className="mt-1 break-all text-sm text-slate-600">{revocation.serial}</p>
+              <article className="rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-4" key={revocation.serial}>
+                <p className="font-medium text-slate-50">{revocation.commonName || revocation.serial}</p>
+                <p className="mt-1 break-all text-sm text-slate-300">{revocation.serial}</p>
                 <p className="mt-2 text-xs uppercase tracking-[0.18em] text-rose-700">{revocation.reason}</p>
               </article>
             ))}
@@ -432,9 +432,9 @@ export function PkiPage() {
         <Panel title="PKI Copilot Signals" eyebrow="Policy assistant">
           <div className="grid gap-3 md:grid-cols-3">
             {pkiGuidance.map((item) => (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3" key={item.label}>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{item.label}</p>
-                <p className="mt-2 text-sm text-slate-700">{item.value}</p>
+              <div className="rounded-2xl border border-slate-700/70 bg-slate-900/40 px-4 py-3" key={item.label}>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">{item.label}</p>
+                <p className="mt-2 text-sm text-slate-200">{item.value}</p>
               </div>
             ))}
           </div>

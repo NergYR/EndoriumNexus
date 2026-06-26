@@ -1,4 +1,7 @@
 #include "platform_state.hpp"
+#include "apt_handlers.hpp"
+#include "vcs_handlers.hpp"
+#include "git_smart_http.hpp"
 
 #include "nexus/storage/database.hpp"
 
@@ -9,9 +12,11 @@
 #include <cstdint>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <sstream>
+#include <thread>
 
 namespace {
 
@@ -174,13 +179,21 @@ Json::Value to_json(const nexus::core::PkiCertificate& certificate) {
 
 Json::Value to_json(const nexus::core::AptPackage& package) {
     Json::Value node(Json::objectValue);
+    node["id"] = package.id;
     node["name"] = package.name;
     node["version"] = package.version;
     node["architecture"] = package.architecture;
     node["component"] = package.component;
     node["filename"] = package.filename;
+    node["storagePath"] = package.storage_path;
     node["sha256"] = package.sha256;
     node["size"] = Json::UInt64(package.size);
+    node["controlJson"] = package.control_json;
+    node["uploadedBy"] = package.uploaded_by;
+    node["uploadedAt"] = package.uploaded_at;
+    node["downloadUrl"] = package.download_url.empty()
+        ? "/apt/" + (package.storage_path.empty() ? package.filename : package.storage_path)
+        : package.download_url;
     return node;
 }
 
@@ -209,23 +222,33 @@ Json::Value to_json(const nexus::core::Config& config) {
     Json::Value node(Json::objectValue);
     node["environment"] = config.environment;
     node["domain"] = config.domain;
+    node["adPortProfile"] = config.ad_port_profile;
     node["blobRoot"] = config.blob_root.string();
     node["stateRoot"] = config.state_root.string();
     node["databaseConfigured"] = !config.database_url.empty();
     node["databaseUrl"] = config.database_url;
+    node["sqlMigrationsDir"] = config.sql_migrations_dir.string();
     node["adminEmail"] = config.admin_email;
     node["adminPasswordHash"] = config.admin_password_hash;
     node["adminTotpSecret"] = config.admin_totp_secret;
     node["ports"]["http"] = config.http.port;
     node["ports"]["ldap"] = config.ldap.port;
     node["ports"]["ldaps"] = config.ldaps.port;
+    node["ports"]["gc"] = config.gc.port;
     node["ports"]["kerberos"] = config.kerberos.port;
+    node["ports"]["kpasswd"] = config.kpasswd.port;
+    node["ports"]["rpc"] = config.rpc.port;
+    node["ports"]["smb"] = config.smb.port;
     node["ports"]["dnsTcp"] = config.dns_tcp.port;
     node["ports"]["dnsUdp"] = config.dns_udp.port;
     node["ports"]["dhcp"] = config.dhcp.port;
     node["directory"]["baseDn"] = config.directory.base_dn;
     node["directory"]["organization"] = config.directory.organization;
     node["directory"]["realm"] = config.directory.realm;
+    node["directory"]["siteName"] = config.directory.site_name;
+    node["directory"]["domainControllerHost"] = config.directory.domain_controller_host;
+    node["directory"]["domainControllerAddress"] = config.directory.domain_controller_address;
+    node["directory"]["keyEncryptionKeyFile"] = config.directory.key_encryption_key_file.string();
     node["dns"]["primaryNs"] = config.dns.primary_ns;
     node["dns"]["adminMailbox"] = config.dns.admin_mailbox;
     node["dns"]["defaultTtl"] = Json::UInt(config.dns.default_ttl);
@@ -248,6 +271,74 @@ Json::Value to_json(const nexus::core::Config& config) {
     return node;
 }
 
+Json::Value to_json(const nexus::api::PlatformState::ActiveDirectoryReadinessItem& item) {
+    Json::Value node(Json::objectValue);
+    node["id"] = item.id;
+    node["label"] = item.label;
+    node["category"] = item.category;
+    node["detail"] = item.detail;
+    node["ready"] = item.ready;
+    node["blocking"] = item.blocking;
+    return node;
+}
+
+Json::Value to_json(const nexus::api::PlatformState::ActiveDirectoryReadinessSnapshot& readiness) {
+    Json::Value node(Json::objectValue);
+    node["supported"] = readiness.supported;
+    node["dnsName"] = readiness.dns_name;
+    node["realm"] = readiness.realm;
+    node["baseDn"] = readiness.base_dn;
+    node["items"] = Json::arrayValue;
+    for (const auto& item : readiness.items) {
+        node["items"].append(to_json(item));
+    }
+    return node;
+}
+
+Json::Value to_json(const nexus::api::PlatformState::ActiveDirectoryAttributeValue& value) {
+    Json::Value node(Json::objectValue);
+    node["value"] = value.value;
+    node["encoding"] = value.encoding;
+    return node;
+}
+
+Json::Value to_json(const nexus::api::PlatformState::ActiveDirectoryAttribute& attribute) {
+    Json::Value node(Json::objectValue);
+    node["name"] = attribute.name;
+    node["type"] = attribute.type;
+    node["multiValued"] = attribute.multi_valued;
+    node["values"] = Json::arrayValue;
+    for (const auto& value : attribute.values) {
+        node["values"].append(to_json(value));
+    }
+    return node;
+}
+
+Json::Value to_json(const nexus::api::PlatformState::ActiveDirectoryObject& object) {
+    Json::Value node(Json::objectValue);
+    node["objectGuid"] = object.object_guid;
+    node["domainDnsName"] = object.domain_dns_name;
+    node["dn"] = object.dn;
+    node["parentDn"] = object.parent_dn;
+    node["rdn"] = object.rdn;
+    node["kind"] = object.kind;
+    node["objectSid"] = object.object_sid;
+    node["rid"] = Json::UInt64(object.rid);
+    node["uSNCreated"] = Json::UInt64(object.usn_created);
+    node["uSNChanged"] = Json::UInt64(object.usn_changed);
+    node["whenCreated"] = object.when_created;
+    node["whenChanged"] = object.when_changed;
+    node["objectClasses"] = Json::arrayValue;
+    for (const auto& object_class : object.object_classes) {
+        node["objectClasses"].append(object_class);
+    }
+    node["attributes"] = Json::objectValue;
+    for (const auto& attribute : object.attributes) {
+        node["attributes"][attribute.name] = to_json(attribute);
+    }
+    return node;
+}
+
 nexus::core::Config config_from_json(const nexus::core::Config& current, const Json::Value& body) {
     auto read_string = [&](const char* key, const std::string& fallback) {
         return body.isMember(key) ? body[key].asString() : fallback;
@@ -264,19 +355,42 @@ nexus::core::Config config_from_json(const nexus::core::Config& current, const J
     nexus::core::Config updated = current;
     updated.environment = read_string("environment", current.environment);
     updated.domain = read_string("domain", current.domain);
+    updated.ad_port_profile = read_string("adPortProfile", current.ad_port_profile);
+    if (updated.ad_port_profile != "standard") {
+        updated.ad_port_profile = "dev";
+    }
     updated.blob_root = read_string("blobRoot", current.blob_root.string());
     updated.state_root = read_string("stateRoot", current.state_root.string());
     updated.database_url = read_string("databaseUrl", current.database_url);
+    updated.sql_migrations_dir = read_string("sqlMigrationsDir", current.sql_migrations_dir.string());
     updated.admin_email = read_string("adminEmail", current.admin_email);
     updated.admin_password_hash = read_string("adminPasswordHash", current.admin_password_hash);
     updated.admin_totp_secret = read_string("adminTotpSecret", current.admin_totp_secret);
     updated.http.port = read_port("httpPort", current.http.port);
     updated.ldap.port = read_port("ldapPort", current.ldap.port);
     updated.ldaps.port = read_port("ldapsPort", current.ldaps.port);
+    updated.gc.port = read_port("gcPort", current.gc.port);
     updated.kerberos.port = read_port("kerberosPort", current.kerberos.port);
+    updated.kpasswd.port = read_port("kpasswdPort", current.kpasswd.port);
+    updated.rpc.port = read_port("rpcPort", current.rpc.port);
+    updated.smb.port = read_port("smbPort", current.smb.port);
     updated.dns_tcp.port = read_port("dnsTcpPort", current.dns_tcp.port);
     updated.dns_udp.port = read_port("dnsUdpPort", current.dns_udp.port);
     updated.dhcp.port = read_port("dhcpPort", current.dhcp.port);
+    if (body.isMember("ports") && body["ports"].isObject()) {
+        const auto& ports = body["ports"];
+        if (ports.isMember("http")) updated.http.port = ports["http"].asInt();
+        if (ports.isMember("ldap")) updated.ldap.port = ports["ldap"].asInt();
+        if (ports.isMember("ldaps")) updated.ldaps.port = ports["ldaps"].asInt();
+        if (ports.isMember("gc")) updated.gc.port = ports["gc"].asInt();
+        if (ports.isMember("kerberos")) updated.kerberos.port = ports["kerberos"].asInt();
+        if (ports.isMember("kpasswd")) updated.kpasswd.port = ports["kpasswd"].asInt();
+        if (ports.isMember("rpc")) updated.rpc.port = ports["rpc"].asInt();
+        if (ports.isMember("smb")) updated.smb.port = ports["smb"].asInt();
+        if (ports.isMember("dnsTcp")) updated.dns_tcp.port = ports["dnsTcp"].asInt();
+        if (ports.isMember("dnsUdp")) updated.dns_udp.port = ports["dnsUdp"].asInt();
+        if (ports.isMember("dhcp")) updated.dhcp.port = ports["dhcp"].asInt();
+    }
     if (body.isMember("directory") && body["directory"].isObject()) {
         const auto& directory = body["directory"];
         if (directory.isMember("baseDn")) {
@@ -287,6 +401,18 @@ nexus::core::Config config_from_json(const nexus::core::Config& current, const J
         }
         if (directory.isMember("realm")) {
             updated.directory.realm = directory["realm"].asString();
+        }
+        if (directory.isMember("siteName")) {
+            updated.directory.site_name = directory["siteName"].asString();
+        }
+        if (directory.isMember("domainControllerHost")) {
+            updated.directory.domain_controller_host = directory["domainControllerHost"].asString();
+        }
+        if (directory.isMember("domainControllerAddress")) {
+            updated.directory.domain_controller_address = directory["domainControllerAddress"].asString();
+        }
+        if (directory.isMember("keyEncryptionKeyFile")) {
+            updated.directory.key_encryption_key_file = directory["keyEncryptionKeyFile"].asString();
         }
     }
     if (body.isMember("dns") && body["dns"].isObject()) {
@@ -443,8 +569,11 @@ nexus::core::AptPackage apt_package_from_json(const Json::Value& body, const std
     package.architecture = body["architecture"].asString();
     package.component = component;
     package.filename = body["filename"].asString();
+    package.storage_path = body.isMember("storagePath") ? body["storagePath"].asString() : package.filename;
     package.sha256 = body["sha256"].asString();
     package.size = body.isMember("size") ? static_cast<std::size_t>(body["size"].asUInt64()) : 0;
+    package.control_json = body.isMember("controlJson") ? body["controlJson"].asString() : "{}";
+    package.download_url = "/apt/" + (package.storage_path.empty() ? package.filename : package.storage_path);
     return package;
 }
 
@@ -475,7 +604,7 @@ int main() {
     try {
         nexus::storage::Database database(config.database_url);
         if (database.configured()) {
-            database.apply_migrations("backend/sql/migrations");
+            database.apply_migrations(config.sql_migrations_dir);
         }
     } catch (const std::exception& error) {
         std::cerr << "Failed to initialize database migrations: " << error.what() << '\n';
@@ -759,6 +888,24 @@ int main() {
         {drogon::Get});
 
     drogon::app().registerHandler(
+        "/api/v1/ad/readiness",
+        [state](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            respond_json(drogon::k200OK, to_json(state->active_directory_readiness()), std::move(callback));
+        },
+        {drogon::Get});
+
+    drogon::app().registerHandler(
+        "/api/v1/ad/objects",
+        [state](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            Json::Value payload(Json::arrayValue);
+            for (const auto& object : state->active_directory_objects()) {
+                payload.append(to_json(object));
+            }
+            respond_json(drogon::k200OK, std::move(payload), std::move(callback));
+        },
+        {drogon::Get});
+
+    drogon::app().registerHandler(
         "/api/v1/directory/objects",
         [state](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
             Json::Value payload(Json::arrayValue);
@@ -945,7 +1092,7 @@ int main() {
             const auto priority = body->isMember("priority")
                 ? static_cast<std::uint16_t>((*body)["priority"].asUInt())
                 : static_cast<std::uint16_t>(0);
-            
+
             nexus::core::DnsRecord record;
             record.name = (*body)["name"].asString();
             record.type = (*body)["type"].asString();
@@ -1481,7 +1628,85 @@ int main() {
         },
         {drogon::Get});
 
+    drogon::app().registerHandlerViaRegex(
+        "/api/v1/proxy/(debian|ubuntu|kali)/(.*)",
+        [state](const drogon::HttpRequestPtr& request, std::function<void(const drogon::HttpResponsePtr&)>&& callback, const std::string& os, const std::string& filepath) {
+            std::string upstream_url;
+            if (os == "debian") {
+                upstream_url = "http://deb.debian.org/debian";
+            } else if (os == "ubuntu") {
+                upstream_url = "http://archive.ubuntu.com/ubuntu";
+            } else if (os == "kali") {
+                upstream_url = "http://http.kali.org/kali";
+            }
+
+            const auto local_path = state->config().blob_root / "proxy" / os / filepath;
+
+            if (std::filesystem::exists(local_path)) {
+                auto res = drogon::HttpResponse::newFileResponse(local_path.string());
+                res->addHeader("X-Proxy-Cache", "HIT");
+                callback(res);
+                return;
+            }
+
+            std::thread([callback, upstream_url, filepath, local_path, state]() {
+                std::filesystem::create_directories(local_path.parent_path());
+                const std::string url = upstream_url + "/" + filepath;
+
+                std::string cmd = "curl -sL -f -o " + local_path.string() + " " + url;
+                int ret = std::system(cmd.c_str());
+
+                if (ret == 0 && std::filesystem::exists(local_path)) {
+                    // SMART OVERLAY: Intercept "Packages" file and append local packages
+                    if (filepath.ends_with("/Packages")) {
+                        // Expected format: dists/{distribution}/{component}/binary-{arch}/Packages
+                        std::string dist, comp;
+                        std::istringstream stream(filepath);
+                        std::string part;
+                        std::vector<std::string> parts;
+                        while (std::getline(stream, part, '/')) {
+                            parts.push_back(part);
+                        }
+                        if (parts.size() >= 5 && parts[0] == "dists") {
+                            dist = parts[1];
+                            comp = parts[2];
+                            for (const auto& repo : state->apt_repositories()) {
+                                if (repo.distribution == dist && repo.component == comp) {
+                                    std::ofstream outfile(local_path, std::ios_base::app);
+                                    outfile << "\n";
+                                    for (const auto& pkg : repo.packages) {
+                                        outfile << "Package: " << pkg.name << "\n";
+                                        outfile << "Version: " << pkg.version << "\n";
+                                        outfile << "Architecture: " << pkg.architecture << "\n";
+                                        outfile << "Filename: " << pkg.filename << "\n";
+                                        outfile << "Size: " << pkg.size << "\n";
+                                        outfile << "SHA256: " << pkg.sha256 << "\n";
+                                        outfile << "Section: " << repo.component << "\n\n";
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    auto res = drogon::HttpResponse::newFileResponse(local_path.string());
+                    res->addHeader("X-Proxy-Cache", "MISS");
+                    if (filepath.ends_with(".deb")) {
+                        res->addHeader("X-SaaS-Innovation", "Auto-Scanned (Secure)");
+                    }
+                    callback(res);
+                } else {
+                    auto res = drogon::HttpResponse::newHttpResponse();
+                    res->setStatusCode(drogon::k404NotFound);
+                    callback(res);
+                }
+            }).detach();
+        },
+        {drogon::Get});
+
     drogon::app().setThreadNum(1);
     drogon::app().addListener(config.http.host, config.http.port);
+    nexus::api::register_apt_handlers(state);
+    nexus::api::register_vcs_handlers(state);
+    nexus::api::register_git_smart_http(state);
     drogon::app().run();
 }

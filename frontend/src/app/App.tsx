@@ -12,6 +12,7 @@ import { LoginPage } from "../features/settings/LoginPage";
 import { PkiPage } from "../features/pki/PkiPage";
 import { ReposPage } from "../features/repos/ReposPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import { VcsPage } from "../features/vcs/VcsPage";
 import { useAuth } from "../lib/api";
 
 const queryClient = new QueryClient();
@@ -22,7 +23,8 @@ const navItems = [
   { to: "/dns", label: "DNS" },
   { to: "/dhcp", label: "DHCP" },
   { to: "/pki", label: "PKI" },
-  { to: "/repos", label: "Dépôts" },
+  { to: "/repos", label: "Dépôts APT" },
+  { to: "/vcs", label: "Serveur Git" },
   { to: "/audit", label: "Journal" },
   { to: "/settings", label: "Réglages" }
 ];
@@ -119,6 +121,7 @@ function Shell() {
           <Route path="/dhcp" element={<DhcpPage />} />
           <Route path="/pki" element={<PkiPage />} />
           <Route path="/repos" element={<ReposPage />} />
+          <Route path="/vcs" element={<VcsPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>

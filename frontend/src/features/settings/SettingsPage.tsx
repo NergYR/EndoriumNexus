@@ -8,6 +8,7 @@ import { useDashboard, useFeatureFlags, useSettings, useUpdateFeatureFlags, useU
 type SettingsForm = {
   environment: string;
   domain: string;
+  adPortProfile?: string;
   blobRoot: string;
   stateRoot: string;
   databaseUrl: string;
@@ -17,7 +18,11 @@ type SettingsForm = {
   httpPort: number;
   ldapPort: number;
   ldapsPort: number;
+  gcPort: number;
   kerberosPort: number;
+  kpasswdPort: number;
+  rpcPort: number;
+  smbPort: number;
   dnsTcpPort: number;
   dnsUdpPort: number;
   dhcpPort: number;
@@ -25,6 +30,10 @@ type SettingsForm = {
     baseDn: string;
     organization: string;
     realm: string;
+    siteName: string;
+    domainControllerHost: string;
+    domainControllerAddress: string;
+    keyEncryptionKeyFile?: string;
   };
   dns: {
     primaryNs: string;
@@ -53,7 +62,11 @@ type PortField =
   | "httpPort"
   | "ldapPort"
   | "ldapsPort"
+  | "gcPort"
   | "kerberosPort"
+  | "kpasswdPort"
+  | "rpcPort"
+  | "smbPort"
   | "dnsTcpPort"
   | "dnsUdpPort"
   | "dhcpPort";
@@ -67,6 +80,7 @@ export function SettingsPage() {
   const [form, setForm] = useState<SettingsForm>({
     environment: "development",
     domain: "endorium.local",
+    adPortProfile: "dev",
     blobRoot: "var/blob",
     stateRoot: "var/state",
     databaseUrl: "",
@@ -76,14 +90,22 @@ export function SettingsPage() {
     httpPort: 8080,
     ldapPort: 8389,
     ldapsPort: 8636,
+    gcPort: 8326,
     kerberosPort: 8088,
+    kpasswdPort: 8464,
+    rpcPort: 8135,
+    smbPort: 8445,
     dnsTcpPort: 8053,
     dnsUdpPort: 8053,
     dhcpPort: 8067,
     directory: {
       baseDn: "dc=endorium,dc=local",
       organization: "Endorium",
-      realm: "ENDORIUM.LOCAL"
+      realm: "ENDORIUM.LOCAL",
+      siteName: "Default-First-Site-Name",
+      domainControllerHost: "dc1",
+      domainControllerAddress: "127.0.0.1",
+      keyEncryptionKeyFile: ""
     },
     dns: {
       primaryNs: "ns1.endorium.local",
@@ -116,6 +138,7 @@ export function SettingsPage() {
     setForm({
       environment: settings.data.environment,
       domain: settings.data.domain,
+      adPortProfile: settings.data.adPortProfile ?? "dev",
       blobRoot: settings.data.blobRoot,
       stateRoot: settings.data.stateRoot,
       databaseUrl: settings.data.databaseUrl,
@@ -125,7 +148,11 @@ export function SettingsPage() {
       httpPort: settings.data.ports.http,
       ldapPort: settings.data.ports.ldap,
       ldapsPort: settings.data.ports.ldaps,
+      gcPort: settings.data.ports.gc,
       kerberosPort: settings.data.ports.kerberos,
+      kpasswdPort: settings.data.ports.kpasswd,
+      rpcPort: settings.data.ports.rpc,
+      smbPort: settings.data.ports.smb,
       dnsTcpPort: settings.data.ports.dnsTcp,
       dnsUdpPort: settings.data.ports.dnsUdp,
       dhcpPort: settings.data.ports.dhcp,
@@ -158,7 +185,7 @@ export function SettingsPage() {
   }, [featureFlags.data]);
 
   if (settings.isLoading || !settings.data || dashboard.isLoading || !dashboard.data || featureFlags.isLoading || !featureFlags.data) {
-    return <div className="text-sm text-slate-500">Chargement des réglages...</div>;
+    return <div className="text-sm text-slate-400">Chargement des réglages...</div>;
   }
 
   const healthyServices = serviceStates.filter((state) => state === "healthy").length;
@@ -168,7 +195,11 @@ export function SettingsPage() {
     ["httpPort", "HTTP port"],
     ["ldapPort", "LDAP port"],
     ["ldapsPort", "LDAPS port"],
+    ["gcPort", "Global Catalog port"],
     ["kerberosPort", "Kerberos port"],
+    ["kpasswdPort", "kpasswd port"],
+    ["rpcPort", "DCE/RPC port"],
+    ["smbPort", "SMB2 port"],
     ["dnsTcpPort", "DNS TCP port"],
     ["dnsUdpPort", "DNS UDP port"],
     ["dhcpPort", "DHCP port"]
@@ -213,11 +244,11 @@ export function SettingsPage() {
         <Panel title="Runtime Snapshot" eyebrow="Monitoring">
           <div className="grid gap-3 md:grid-cols-2">
             {dashboard.data.services.map((service) => (
-              <article className="rounded-2xl border border-slate-200 bg-white px-4 py-4" key={service.id}>
+              <article className="rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-4" key={service.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="font-medium text-slate-900">{service.label}</p>
-                    <p className="mt-1 text-sm text-slate-600">{service.summary}</p>
+                    <p className="font-medium text-slate-50">{service.label}</p>
+                    <p className="mt-1 text-sm text-slate-300">{service.summary}</p>
                     {service.blockingReason && <p className="mt-2 text-xs text-amber-700">{service.blockingReason}</p>}
                   </div>
                   <ServiceBadge state={service.state} />
@@ -225,7 +256,7 @@ export function SettingsPage() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   {service.endpoints.map((endpoint) => (
                     <span
-                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-600"
+                      className="rounded-full border border-slate-700/70 bg-slate-900/40 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-300"
                       key={endpoint}
                     >
                       {endpoint}
@@ -238,24 +269,24 @@ export function SettingsPage() {
         </Panel>
 
         <Panel title="Aperçu rapide" eyebrow="Live Diagnostics">
-          <div className="space-y-3 text-sm text-slate-600">
+          <div className="space-y-3 text-sm text-slate-300">
             <p>
-              Domaine: <span className="text-slate-900">{settings.data.domain}</span>
+              Domaine: <span className="text-slate-50">{settings.data.domain}</span>
             </p>
             <p>
-              Email admin: <span className="text-slate-900">{settings.data.adminEmail}</span>
+              Email admin: <span className="text-slate-50">{settings.data.adminEmail}</span>
             </p>
             <p>
-              Base de données: <span className="text-slate-900">{settings.data.databaseConfigured ? "connectée" : "désactivée"}</span>
+              Base de données: <span className="text-slate-50">{settings.data.databaseConfigured ? "connectée" : "désactivée"}</span>
             </p>
             <p>
-              Blob root: <span className="text-slate-900">{settings.data.blobRoot}</span>
+              Blob root: <span className="text-slate-50">{settings.data.blobRoot}</span>
             </p>
             <p>
-              State root: <span className="text-slate-900">{settings.data.stateRoot}</span>
+              State root: <span className="text-slate-50">{settings.data.stateRoot}</span>
             </p>
           </div>
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          <div className="mt-4 rounded-2xl border border-slate-700/70 bg-slate-900/40 px-4 py-3 text-sm text-slate-300">
             Cette vue remplace l'ancien console de debug pour garder seulement les informations utiles.
           </div>
         </Panel>
@@ -271,7 +302,7 @@ export function SettingsPage() {
         >
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Environment</span>
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Environment</span>
               <input
                 className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, environment: event.target.value }))}
@@ -279,7 +310,7 @@ export function SettingsPage() {
               />
             </label>
             <label className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Domain</span>
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Domain</span>
               <input
                 className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, domain: event.target.value }))}
@@ -287,7 +318,7 @@ export function SettingsPage() {
               />
             </label>
             <label className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Admin email</span>
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Admin email</span>
               <input
                 className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, adminEmail: event.target.value }))}
@@ -295,7 +326,7 @@ export function SettingsPage() {
               />
             </label>
             <label className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Database URL</span>
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Database URL</span>
               <input
                 className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, databaseUrl: event.target.value }))}
@@ -306,7 +337,7 @@ export function SettingsPage() {
 
           <div className="grid gap-4 md:grid-cols-3">
             <label className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Blob root</span>
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Blob root</span>
               <input
                 className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, blobRoot: event.target.value }))}
@@ -314,7 +345,7 @@ export function SettingsPage() {
               />
             </label>
             <label className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">State root</span>
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-400">State root</span>
               <input
                 className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, stateRoot: event.target.value }))}
@@ -322,7 +353,7 @@ export function SettingsPage() {
               />
             </label>
             <label className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">TOTP secret</span>
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-400">TOTP secret</span>
               <input
                 className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, adminTotpSecret: event.target.value }))}
@@ -334,7 +365,7 @@ export function SettingsPage() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {portCards.map(([field, label]) => (
               <label className="grid gap-2" key={field}>
-                <span className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</span>
+                <span className="text-xs uppercase tracking-[0.18em] text-slate-400">{label}</span>
                 <input
                   className="field rounded-2xl px-4 py-3 outline-none"
                   onChange={(event) =>
@@ -349,7 +380,7 @@ export function SettingsPage() {
               </label>
             ))}
             <label className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.18em] text-slate-500">Admin password hash</span>
+              <span className="text-xs uppercase tracking-[0.18em] text-slate-400">Admin password hash</span>
               <input
                 className="field rounded-2xl px-4 py-3 outline-none"
                 onChange={(event) => setForm((current) => ({ ...current, adminPasswordHash: event.target.value }))}
@@ -375,7 +406,7 @@ export function SettingsPage() {
 
       <Panel title="Module Flags" eyebrow="Module Control">
         <div className="space-y-3">
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-300">
             Activez uniquement les modules réellement prêts à être utilisés.
           </p>
           <div className="grid gap-3">
@@ -392,11 +423,11 @@ export function SettingsPage() {
                       "Configuration incomplète";
 
               return (
-                <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3" key={entry.serviceId}>
+                <label className="rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-3" key={entry.serviceId}>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-slate-900">{entry.label}</p>
-                      <p className="mt-1 text-xs text-slate-500">{statusText}</p>
+                      <p className="text-sm font-medium text-slate-50">{entry.label}</p>
+                      <p className="mt-1 text-xs text-slate-400">{statusText}</p>
                     </div>
                     <input
                       disabled={entry.serviceId === "api" || !ready}
@@ -435,16 +466,21 @@ export function SettingsPage() {
           {[
             ["Environment", settings.data.environment],
             ["Domain", settings.data.domain],
+            ["AD port profile", settings.data.adPortProfile ?? "dev"],
             ["Database", settings.data.databaseConfigured ? "connected" : "disabled"],
             ["Admin email", settings.data.adminEmail],
             ["HTTP", settings.data.ports.http],
             ["LDAP", settings.data.ports.ldap],
             ["LDAPS", settings.data.ports.ldaps],
-            ["Kerberos", settings.data.ports.kerberos]
+            ["Global Catalog", settings.data.ports.gc],
+            ["Kerberos", settings.data.ports.kerberos],
+            ["kpasswd", settings.data.ports.kpasswd],
+            ["DCE/RPC", settings.data.ports.rpc],
+            ["SMB2", settings.data.ports.smb]
           ].map(([label, value]) => (
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3" key={label}>
-              <dt className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</dt>
-              <dd className="mt-2 text-sm text-slate-900">{value}</dd>
+            <div className="rounded-2xl border border-slate-700/70 bg-slate-900/50 px-4 py-3" key={label}>
+              <dt className="text-xs uppercase tracking-[0.18em] text-slate-400">{label}</dt>
+              <dd className="mt-2 text-sm text-slate-50">{value}</dd>
             </div>
           ))}
         </dl>
@@ -452,4 +488,3 @@ export function SettingsPage() {
     </div>
   );
 }
-

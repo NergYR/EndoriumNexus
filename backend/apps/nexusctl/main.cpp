@@ -41,8 +41,10 @@ int main(int argc, char** argv) {
 
     if (command == "migrate") {
         nexus::storage::Database database(config.database_url);
-        database.apply_migrations("backend/sql/migrations");
-        std::cout << "Migrations applied.\n";
+        // Honour NEXUS_SQL_MIGRATIONS_DIR (config.sql_migrations_dir) so migrations
+        // work outside the repo root — e.g. from the container's /opt/nexus.
+        database.apply_migrations(config.sql_migrations_dir);
+        std::cout << "Migrations applied from " << config.sql_migrations_dir << ".\n";
         return 0;
     }
 

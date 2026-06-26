@@ -1,0 +1,105 @@
+name: endorium-nexus
+
+# Architecture: a "DC" container (directory + network on ONE network identity,
+# as Active Directory requires) plus a separate control plane (api/UI, pki-repo)
+# and PostgreSQL. The DC also attaches to a macvlan network so it owns a real
+# LAN IP (its own MAC) — Windows clients target that IP with no port conflicts.
+
+x-nexus-env: &nexus-env
+  NEXUS_DATABASE_URL: postgresql://${POSTGRES_USER:-endorium}:${POSTGRES_PASSWORD:-endorium}@postgres:5432/${POSTGRES_DB:-endorium_nexus}
+  NEXUS_DOMAIN: ${NEXUS_DOMAIN:-endorium.local}
+  NEXUS_DIRECTORY_REALM: ${NEXUS_REALM:-ENDORIUM.LOCAL}
+  NEXUS_AD_DC_HOST: ${NEXUS_DC_HOST:-dc1}
+  NEXUS_AD_DC_ADDRESS: ${NEXUS_DC_IP:-192.168.1.50}
+  NEXUS_ADMIN_EMAIL: ${NEXUS_ADMIN_EMAIL:-admin@endorium.local}
+  NEXUS_ADMIN_PASSWORD_HASH: ${NEXUS_ADMIN_PASSWORD_HASH:?set NEXUS_ADMIN_PASSWORD_HASH in .env.docker (see docker/README.md)}
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-endorium}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-endorium}
+      POSTGRES_DB: ${POSTGRES_DB:-endorium_nexus}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-endorium} -d ${POSTGRES_DB:-endorium_nexus}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  nexus-api:
+    image: ${NEXUS_IMAGE:-endorium-nexus:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["entrypoint-api.sh"]
+    environment: *nexus-env
+    volumes:
+      - nexus-state:/var/lib/nexus/state
+      - nexus-blob:/var/lib/nexus/blob
+    networks: [backend]
+    ports:
+      - "${NEXUS_HTTP_PUBLISH:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  nexus-dc:
+    image: ${NEXUS_IMAGE:-endorium-nexus:latest}
+    command: ["entrypoint-dc.sh"]
+    environment:
+      <<: *nexus-env
+      NEXUS_AD_PORT_PROFILE: standard
+      NEXUS_HTTP_HOST: 0.0.0.0
+    volumes:
+      # Shares the state volume with nexus-api so the DC reads the same KEK file
+      # (kerberos_keys.hex) that the API used to seal krbtgt/DC/account secrets.
+      - nexus-state:/var/lib/nexus/state
+      - nexus-blob:/var/lib/nexus/blob
+    networks:
+      backend: {}
+      lan:
+        ipv4_address: ${NEXUS_DC_IP:-192.168.1.50}
+    cap_add:
+      - NET_BIND_SERVICE
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  nexus-pki-repo:
+    image: ${NEXUS_IMAGE:-endorium-nexus:latest}
+    command: ["nexus-pki-repo"]
+    environment: *nexus-env
+    volumes:
+      - nexus-state:/var/lib/nexus/state
+      - nexus-blob:/var/lib/nexus/blob
+    networks: [backend]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  backend:
+    driver: bridge
+  # macvlan gives nexus-dc its own IP+MAC on the physical LAN. Set MACVLAN_PARENT
+  # to the host NIC bridged to the LAN (e.g. eth0) in .env.docker.
+  lan:
+    driver: macvlan
+    driver_opts:
+      parent: ${MACVLAN_PARENT:-eth0}
+    ipam:
+      config:
+        - subnet: ${LAN_SUBNET:-192.168.1.0/24}
+          gateway: ${LAN_GATEWAY:-192.168.1.1}
+
+volumes:
+  pgdata:
+  nexus-state:
+  nexus-blob:

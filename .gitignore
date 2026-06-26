@@ -22,4 +22,9 @@
 
 
 .env*
+# ...but keep the committed templates.
+!.env.docker.example
 .editorconfig
+
+# TypeScript incremental build cache
+*.tsbuildinfo

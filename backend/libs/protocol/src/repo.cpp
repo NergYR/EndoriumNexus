@@ -14,7 +14,7 @@ std::string render_packages_index(const nexus::core::AptRepository& repository) 
         output << "Package: " << package.name << "\n";
         output << "Version: " << package.version << "\n";
         output << "Architecture: " << package.architecture << "\n";
-        output << "Filename: " << package.filename << "\n";
+        output << "Filename: " << (package.storage_path.empty() ? package.filename : package.storage_path) << "\n";
         output << "Size: " << package.size << "\n";
         output << "SHA256: " << package.sha256 << "\n";
         output << "Section: " << repository.component << "\n\n";

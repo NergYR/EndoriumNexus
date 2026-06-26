@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -115,18 +116,66 @@ std::optional<ByteVector> load_existing_key(const std::filesystem::path& key_fil
     return key;
 }
 
-std::vector<unsigned char> utf16le_ascii(const std::string& value) {
+void append_utf16le_codepoint(ByteVector& output, std::uint32_t codepoint) {
+    if (codepoint <= 0xffff) {
+        output.push_back(static_cast<unsigned char>(codepoint & 0xffU));
+        output.push_back(static_cast<unsigned char>((codepoint >> 8U) & 0xffU));
+        return;
+    }
+    codepoint -= 0x10000U;
+    const auto high = static_cast<std::uint16_t>(0xd800U + ((codepoint >> 10U) & 0x3ffU));
+    const auto low = static_cast<std::uint16_t>(0xdc00U + (codepoint & 0x3ffU));
+    output.push_back(static_cast<unsigned char>(high & 0xffU));
+    output.push_back(static_cast<unsigned char>((high >> 8U) & 0xffU));
+    output.push_back(static_cast<unsigned char>(low & 0xffU));
+    output.push_back(static_cast<unsigned char>((low >> 8U) & 0xffU));
+}
+
+ByteVector utf16le_from_utf8(const std::string& value) {
     ByteVector output;
     output.reserve(value.size() * 2);
-    for (unsigned char ch : value) {
-        output.push_back(ch);
-        output.push_back(0);
+    for (std::size_t offset = 0; offset < value.size();) {
+        const auto first = static_cast<unsigned char>(value[offset]);
+        std::uint32_t codepoint = 0xfffdU;
+        std::size_t consumed = 1;
+        if (first < 0x80U) {
+            codepoint = first;
+        } else if ((first & 0xe0U) == 0xc0U && offset + 1 < value.size()) {
+            const auto second = static_cast<unsigned char>(value[offset + 1]);
+            if ((second & 0xc0U) == 0x80U) {
+                codepoint = ((first & 0x1fU) << 6U) | (second & 0x3fU);
+                consumed = 2;
+            }
+        } else if ((first & 0xf0U) == 0xe0U && offset + 2 < value.size()) {
+            const auto second = static_cast<unsigned char>(value[offset + 1]);
+            const auto third = static_cast<unsigned char>(value[offset + 2]);
+            if ((second & 0xc0U) == 0x80U && (third & 0xc0U) == 0x80U) {
+                codepoint = ((first & 0x0fU) << 12U) | ((second & 0x3fU) << 6U) | (third & 0x3fU);
+                consumed = 3;
+            }
+        } else if ((first & 0xf8U) == 0xf0U && offset + 3 < value.size()) {
+            const auto second = static_cast<unsigned char>(value[offset + 1]);
+            const auto third = static_cast<unsigned char>(value[offset + 2]);
+            const auto fourth = static_cast<unsigned char>(value[offset + 3]);
+            if ((second & 0xc0U) == 0x80U && (third & 0xc0U) == 0x80U && (fourth & 0xc0U) == 0x80U) {
+                codepoint = ((first & 0x07U) << 18U) |
+                            ((second & 0x3fU) << 12U) |
+                            ((third & 0x3fU) << 6U) |
+                            (fourth & 0x3fU);
+                consumed = 4;
+            }
+        }
+        if (codepoint > 0x10ffffU || (codepoint >= 0xd800U && codepoint <= 0xdfffU)) {
+            codepoint = 0xfffdU;
+        }
+        append_utf16le_codepoint(output, codepoint);
+        offset += consumed;
     }
     return output;
 }
 
 std::string nt_hash_hex(const std::string& password) {
-    const auto utf16 = utf16le_ascii(password);
+    const auto utf16 = utf16le_from_utf8(password);
     std::array<unsigned char, MD4_DIGEST_LENGTH> digest{};
     MD4(utf16.data(), utf16.size(), digest.data());
     return bytes_to_hex(digest.data(), digest.size());
