@@ -8,20 +8,23 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04
+    # Build inside kali-rolling: it ships Drogon 1.9.12, matching the dev host and
+    # the Docker image. Debian/Ubuntu stable have Drogon 1.8.x, too old for the
+    # streaming API nexus-api uses (newAsyncStreamResponse, added in Drogon 1.9.4).
+    container: kalilinux/kali-rolling
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install native dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          apt-get update
+          apt-get install -y \
             build-essential \
             cmake \
-            dpkg \
-            dpkg-dev \
-            gnupg \
             ninja-build \
             pkg-config \
+            git \
+            ca-certificates \
+            dpkg-dev \
+            gnupg \
             libargon2-dev \
             libdrogon-dev \
             libpqxx-dev \
@@ -29,7 +32,18 @@ jobs:
             libuv1-dev \
             nlohmann-json3-dev \
             zlib1g-dev \
+            libjsoncpp-dev \
+            uuid-dev \
+            libsqlite3-dev \
+            libmariadb-dev \
+            libhiredis-dev \
+            libbrotli-dev \
+            libc-ares-dev \
+            libyaml-cpp-dev \
+            nodejs \
             npm
+
+      - uses: actions/checkout@v5
 
       - name: Install frontend dependencies
         run: cd frontend && npm ci

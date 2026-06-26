@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
-# Endorium Nexus — multi-stage image containing every nexus-* binary plus the
-# built frontend. One image, several roles: the orchestrator picks the role with
-# the container `command` (nexus-api, entrypoint-dc.sh, nexus-pki-repo, ...).
+# Endorium Nexus — slim multi-stage image. Drogon is built from source (no distro
+# packages it at the version Nexus needs) with the ORM disabled, so the runtime
+# only carries libpq + a handful of libraries. One image, several roles: the
+# orchestrator picks the role via the container `command`.
 
 # ---- Stage 1: frontend (static SPA served by nexus-api) --------------------
 FROM node:20-bookworm-slim AS frontend
@@ -11,20 +12,28 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build   # -> /app/frontend/dist
 
-# ---- Stage 2: backend build (C++ daemons) ---------------------------------
-# kali-rolling matches the development host: Drogon 1.9.12 (whose streaming API
-# nexus-api uses) and CMake modules compatible with the current CMake. (Debian
-# bookworm has no drogon; trixie only has Drogon 1.9.0, missing that API.)
-FROM kalilinux/kali-rolling AS backend
+# ---- Stage 2: build Drogon (from source) + the C++ daemons -----------------
+FROM debian:trixie AS backend
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential cmake ninja-build pkg-config \
-        libargon2-dev libdrogon-dev libpqxx-dev libssl-dev libuv1-dev \
-        nlohmann-json3-dev zlib1g-dev \
-        # find_package(Drogon) requires the -dev package of every backend Drogon
-        # was built with, even though Nexus itself only talks to libpq.
-        libjsoncpp-dev uuid-dev libsqlite3-dev libmariadb-dev libhiredis-dev \
-        libbrotli-dev libc-ares-dev libyaml-cpp-dev \
+        build-essential cmake ninja-build pkg-config git ca-certificates \
+        # Drogon's own dependencies (ORM/backends disabled below):
+        libjsoncpp-dev uuid-dev libssl-dev zlib1g-dev \
+        # Nexus dependencies:
+        libpq-dev libuv1-dev libargon2-dev nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Drogon ≥ 1.9.4 (Nexus uses newAsyncStreamResponse). ORM/examples/ctl off keeps
+# the dependency surface — and the runtime image — minimal.
+ARG DROGON_VERSION=v1.9.13
+RUN git clone --depth 1 --branch "${DROGON_VERSION}" --recurse-submodules \
+        https://github.com/drogonframework/drogon /tmp/drogon \
+    && cmake -S /tmp/drogon -B /tmp/drogon/build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DBUILD_ORM=OFF -DBUILD_EXAMPLES=OFF -DBUILD_CTL=OFF -DBUILD_TESTING=OFF \
+    && cmake --build /tmp/drogon/build -j"$(nproc)" \
+    && cmake --install /tmp/drogon/build \
+    && rm -rf /tmp/drogon
+
 WORKDIR /src
 COPY CMakeLists.txt CMakePresets.json ./
 COPY backend/ ./backend/
@@ -32,16 +41,16 @@ RUN cmake --preset release -DNEXUS_BUILD_TESTS=OFF \
     && cmake --build --preset release -j"$(nproc)"
 
 # ---- Stage 3: runtime ------------------------------------------------------
-# Same base as the build stage so the runtime .so versions match. The runtime
-# libraries are pulled by installing the same -dev metapackages the build used
-# (name-stable across rolling lib renames). git + dpkg-dev are needed at runtime
-# by the VCS and APT-repository features. (Can be slimmed to runtime-only libs.)
-FROM kalilinux/kali-rolling AS runtime
+# debian:trixie-slim (same release as the build stage → matching glibc/.so).
+# git + dpkg-dev are needed at runtime by the VCS and APT-repository features.
+FROM debian:trixie-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libargon2-dev libdrogon-dev libpqxx-dev libssl-dev libuv1-dev zlib1g-dev \
-        ca-certificates git dpkg-dev gnupg tini \
+        libjsoncpp26 libssl3t64 libuuid1 zlib1g libpq5 libargon2-1 libuv1t64 \
+        libgssapi-krb5-2 ca-certificates git dpkg-dev gnupg tini \
     && rm -rf /var/lib/apt/lists/*
 
+# Drogon/Trantor are built as static libraries and linked into the binaries, so
+# no Drogon shared object is needed at runtime.
 COPY --from=backend /src/build/release/backend/nexus-api \
                     /src/build/release/backend/nexus-directory \
                     /src/build/release/backend/nexus-network \

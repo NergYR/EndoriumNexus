@@ -89,6 +89,7 @@ short commit SHA. Then point `NEXUS_IMAGE` in `.env.docker` at it (and drop the
   bridge, and LAN clients reach it via the macvlan IP.
 - State (the KEK that seals secrets) lives in the shared `nexus-state` volume so the
   API and the DC agree on the wrapped krbtgt/DC/account secrets.
-- To slim the runtime image later, replace the `lib*` runtime packages in the
-  Dockerfile's final stage with a tighter set verified by `ldd` on the binaries.
+- The image is built on `debian:trixie-slim` (~223 MB). Drogon is compiled from
+  source (no distro packages the version Nexus needs) with the ORM disabled and
+  linked statically, so the runtime only carries libpq + a few libraries.
 ```
