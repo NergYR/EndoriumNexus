@@ -12,9 +12,9 @@ x-nexus-env: &nexus-env
   NEXUS_AD_DC_HOST: ${NEXUS_DC_HOST:-dc1}
   NEXUS_AD_DC_ADDRESS: ${NEXUS_DC_IP:-192.168.1.50}
   NEXUS_ADMIN_EMAIL: ${NEXUS_ADMIN_EMAIL:-admin@endorium.local}
-  # Optional at interpolation time so `nexusctl bootstrap-admin` (which generates
-  # this hash) can run before it is set; nexus-api itself refuses to start without it.
-  NEXUS_ADMIN_PASSWORD_HASH: ${NEXUS_ADMIN_PASSWORD_HASH:-}
+# NEXUS_ADMIN_PASSWORD_HASH is NOT interpolated here: the argon2 hash contains '$'
+# which Compose would treat as variable references. It is injected raw into
+# nexus-api via `env_file` below instead.
 
 services:
   postgres:
@@ -39,7 +39,15 @@ services:
       context: .
       dockerfile: Dockerfile
     command: ["entrypoint-api.sh"]
-    environment: *nexus-env
+    environment:
+      <<: *nexus-env
+      # Bind the HTTP server on all interfaces inside the container so the
+      # published port reaches it (the default 127.0.0.1 would be unreachable).
+      NEXUS_HTTP_HOST: 0.0.0.0
+    # Inject the raw NEXUS_ADMIN_PASSWORD_HASH (argon2, contains '$') without
+    # Compose interpolation. Other vars here are harmless extras for the API.
+    env_file:
+      - .env.docker
     volumes:
       - nexus-state:/var/lib/nexus/state
       - nexus-blob:/var/lib/nexus/blob
