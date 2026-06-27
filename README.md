@@ -23,6 +23,10 @@ The API defaults to `http://127.0.0.1:8080` in development. The frontend runs on
 
 Git Smart HTTP and the signed APT repository need the native tools installed by the Debian bootstrap script: `git`, `dpkg`, `dpkg-dev`, and `gnupg`. The Debian package also declares these runtime dependencies.
 
+## Deployment (Docker Compose)
+
+For production-style deployment on a Linux host (e.g. **AlmaLinux**) with `docker compose` — Docker install, the DC container's dedicated LAN IP via `macvlan`, SELinux/firewalld notes, bring-up, verification, joining a Windows client, and operations — see **[docker/README.md](docker/README.md)**.
+
 ## Root Scripts
 
 If you prefer direct root-level scripts instead of `make`:

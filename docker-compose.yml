@@ -12,7 +12,9 @@ x-nexus-env: &nexus-env
   NEXUS_AD_DC_HOST: ${NEXUS_DC_HOST:-dc1}
   NEXUS_AD_DC_ADDRESS: ${NEXUS_DC_IP:-192.168.1.50}
   NEXUS_ADMIN_EMAIL: ${NEXUS_ADMIN_EMAIL:-admin@endorium.local}
-  NEXUS_ADMIN_PASSWORD_HASH: ${NEXUS_ADMIN_PASSWORD_HASH:?set NEXUS_ADMIN_PASSWORD_HASH in .env.docker (see docker/README.md)}
+  # Optional at interpolation time so `nexusctl bootstrap-admin` (which generates
+  # this hash) can run before it is set; nexus-api itself refuses to start without it.
+  NEXUS_ADMIN_PASSWORD_HASH: ${NEXUS_ADMIN_PASSWORD_HASH:-}
 
 services:
   postgres:
