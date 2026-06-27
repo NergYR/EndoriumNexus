@@ -4818,6 +4818,17 @@ int main() {
     assert(!preauth_probe.empty());
     assert(preauth_probe.front() == 0x7e);
     assert(preauth_probe_text.find("pre-authentication required") != std::string::npos);
+    // Regression (real-client interop): the KDC_ERR_PREAUTH_REQUIRED method-data must
+    // advertise PA-ENC-TIMESTAMP (type 2) as an empty entry. Strict clients (MIT kinit,
+    // the Windows domain-join Kerberos client) only perform encrypted-timestamp
+    // pre-authentication when the KDC advertises it; otherwise they re-send the request
+    // unauthenticated and the join fails with "the username or password is incorrect".
+    // DER for pa_data(2, {}): 30 09 a1 03 02 01 02 a2 02 04 00.
+    const std::vector<std::uint8_t> pa_enc_timestamp_entry{
+        0x30, 0x09, 0xa1, 0x03, 0x02, 0x01, 0x02, 0xa2, 0x02, 0x04, 0x00};
+    assert(std::search(
+               preauth_probe.begin(), preauth_probe.end(),
+               pa_enc_timestamp_entry.begin(), pa_enc_timestamp_entry.end()) != preauth_probe.end());
 
     const auto ldap_salt = security::ad_kerberos_salt("ENDORIUM.LOCAL", "ldap/dc1.endorium.local");
     const auto ldap_key = security::derive_ad_kerberos_aes_key("dc-service-secret", ldap_salt, 32);

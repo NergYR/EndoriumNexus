@@ -1948,7 +1948,17 @@ Bytes method_data(const std::vector<Bytes>& entries) {
 Bytes preauth_method_data(const KerberosRealmInfo& realm_info, const KerberosRequestInfo& request, const KerberosPrincipal* principal) {
     const auto realm = uppercase_ascii(request.realm.empty() ? realm_info.realm : request.realm);
     const auto salt = realm + lowercase_ascii(request.client_principal);
-    return method_data({pa_data(pa_etype_info2, etype_info2(request.requested_etypes, principal, salt))});
+    // Advertise PA-ENC-TIMESTAMP (type 2) as an empty entry so that strict clients
+    // (MIT kinit, the Windows domain-join Kerberos client) know they must perform
+    // encrypted-timestamp pre-authentication. Without this hint they only read the
+    // ETYPE-INFO2 salt and re-send the request unauthenticated, which the KDC then
+    // rejects as KDC_ERR_PREAUTH_FAILED ("the username or password is incorrect").
+    // (Permissive clients such as impacket send the timestamp proactively and so
+    // never exposed this gap.)
+    return method_data({
+        pa_data(pa_enc_timestamp, {}),
+        pa_data(pa_etype_info2, etype_info2(request.requested_etypes, principal, salt)),
+    });
 }
 
 bool has_padata_type(const KerberosRequestInfo& request, int type) {
