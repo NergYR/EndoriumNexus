@@ -562,6 +562,11 @@ nexus::core::DnsZone make_active_directory_dns_zone(const ActiveDirectoryDnsConf
         {"_ldap._tcp." + site_name + "._sites.dc._msdcs", "SRV", dc_target, "IN", 300, 0, 100, config.ldap_port, ""},
         {"_kerberos._tcp", "SRV", dc_target, "IN", 300, 0, 100, config.kerberos_port, ""},
         {"_kerberos._udp", "SRV", dc_target, "IN", 300, 0, 100, config.kerberos_port, ""},
+        // Windows locates a KDC via the _msdcs subtree (DsGetDcName / Kerberos
+        // realm location) — without _kerberos._tcp.dc._msdcs.<realm> the client
+        // cannot find the KDC and silently falls back to NTLM, which fails the join.
+        {"_kerberos._tcp.dc._msdcs", "SRV", dc_target, "IN", 300, 0, 100, config.kerberos_port, ""},
+        {"_kerberos._tcp." + site_name + "._sites.dc._msdcs", "SRV", dc_target, "IN", 300, 0, 100, config.kerberos_port, ""},
         {"_kerberos._tcp." + site_name + "._sites", "SRV", dc_target, "IN", 300, 0, 100, config.kerberos_port, ""},
         {"_kpasswd._tcp", "SRV", dc_target, "IN", 300, 0, 100, config.kpasswd_port, ""},
         {"_kpasswd._udp", "SRV", dc_target, "IN", 300, 0, 100, config.kpasswd_port, ""},
