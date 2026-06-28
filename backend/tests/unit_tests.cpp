@@ -1522,7 +1522,9 @@ void test_full_domain_join_flow() {
     // === Step 5: SMB2 negotiate =========================================
     const auto smb_negotiate = protocol::smb2_response(test_smb2_negotiate_request());
     assert(!smb_negotiate.empty());
-    assert(test_rpc_read_u16(smb_negotiate, 4 + 64 + 4) == 0x0302);
+    // SMB 2.1 is preferred so Windows skips FSCTL_VALIDATE_NEGOTIATE_INFO (whose
+    // STATUS_NOT_SUPPORTED reply tears down the join on SMB 3.x connections).
+    assert(test_rpc_read_u16(smb_negotiate, 4 + 64 + 4) == 0x0210);
 
     // === Step 6: SMB2 SESSION_SETUP with the cifs Kerberos AP-REQ ========
     const TestBytes cifs_session_key{
@@ -4117,12 +4119,12 @@ int main() {
     assert(parsed_smb.command == 0);
     assert(parsed_smb.message_id == 99);
     assert(parsed_smb.dialects.size() == 5);
-    assert(parsed_smb.selected_dialect == 0x0302);
+    assert(parsed_smb.selected_dialect == 0x0210);
     const auto smb_response = protocol::smb2_response(smb_negotiate);
     assert(!smb_response.empty());
     assert(smb_response[0] == 0x00);
     assert(test_rpc_read_u16(smb_response, 4 + 12) == 0);
-    assert(test_rpc_read_u16(smb_response, 4 + 64 + 4) == 0x0302);
+    assert(test_rpc_read_u16(smb_response, 4 + 64 + 4) == 0x0210);
     const auto smb_security_offset = test_rpc_read_u16(smb_response, 4 + 64 + 56);
     const auto smb_security_length = test_rpc_read_u16(smb_response, 4 + 64 + 58);
     assert(smb_security_offset == 128);

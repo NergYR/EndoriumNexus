@@ -476,7 +476,13 @@ std::vector<std::uint8_t> spnego_security_blob() {
 }
 
 std::uint16_t choose_dialect(const std::vector<std::uint16_t>& dialects) {
-    for (const auto preferred : {std::uint16_t{0x0302}, std::uint16_t{0x0300}, std::uint16_t{0x0210}, std::uint16_t{0x0202}, std::uint16_t{0x0311}}) {
+    // Prefer SMB 2.1: SMB 3.x clients enforce "secure negotiate" by sending
+    // FSCTL_VALIDATE_NEGOTIATE_INFO right after TREE_CONNECT, and Windows tears the
+    // connection down when the server can't satisfy it (we answer STATUS_NOT_SUPPORTED).
+    // That teardown aborts the domain join (surfacing as a bogus Int32 OverflowException
+    // in Add-Computer). SMB 2.1 clients never send that IOCTL, and 2.1 still provides
+    // everything the join needs (named pipes, RPC, signing).
+    for (const auto preferred : {std::uint16_t{0x0210}, std::uint16_t{0x0202}, std::uint16_t{0x0302}, std::uint16_t{0x0300}, std::uint16_t{0x0311}}) {
         if (std::find(dialects.begin(), dialects.end(), preferred) != dialects.end()) {
             return preferred;
         }
