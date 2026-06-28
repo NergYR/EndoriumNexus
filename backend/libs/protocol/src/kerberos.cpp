@@ -1319,16 +1319,40 @@ std::optional<AuthenticatorInfo> parse_ap_req_authenticator(
     return AuthenticatorInfo{true, *cusec, *ctime, subkey_enctype, std::move(subkey_value)};
 }
 
-Bytes ap_rep_enc_part(const AuthenticatorInfo& authenticator) {
+int key_size_for_enctype(int enctype);
+Bytes encryption_key(int enctype, const Bytes& key_value);
+
+Bytes ap_rep_enc_part(
+    const AuthenticatorInfo& authenticator,
+    int subkey_enctype,
+    const Bytes& subkey,
+    std::uint32_t seq_number) {
     Bytes payload;
     append_tlv(payload, 0xa0, generalized_time(authenticator.ctime));
     append_tlv(payload, 0xa1, integer_tlv(static_cast<int>(authenticator.cusec)));
+    // The acceptor subkey [2] and seq-number [3] establish the GSS-API context key.
+    // Windows' SSPI uses this acceptor subkey to derive the SMB signing key; without
+    // it the AP-REP is rejected with SEC_E_INVALID_TOKEN and the domain join fails.
+    append_tlv(payload, 0xa2, encryption_key(subkey_enctype, subkey));
+    append_tlv(payload, 0xa3, integer_tlv(static_cast<int>(seq_number)));
     return tlv(0x7b, tlv(0x30, payload));
 }
 
-Bytes ap_rep_token(const TicketSession& session, const AuthenticatorInfo& authenticator) {
+Bytes ap_rep_token(
+    const TicketSession& session,
+    const AuthenticatorInfo& authenticator,
+    int& out_subkey_enctype,
+    Bytes& out_subkey) {
+    out_subkey_enctype = session.key_enctype;
+    const auto subkey_size = key_size_for_enctype(session.key_enctype);
+    out_subkey = random_bytes(subkey_size > 0 ? static_cast<std::size_t>(subkey_size) : session.key_value.size());
+    const auto seq_bytes = random_bytes(4);
+    const std::uint32_t seq_number =
+        (static_cast<std::uint32_t>(seq_bytes[0]) << 16U | static_cast<std::uint32_t>(seq_bytes[1]) << 8U |
+         static_cast<std::uint32_t>(seq_bytes[2])) &
+        0x7fffffffU;
     const auto encrypted = kerberos_encrypt_aes_cts_hmac_sha1(
-        ap_rep_enc_part(authenticator),
+        ap_rep_enc_part(authenticator, out_subkey_enctype, out_subkey, seq_number),
         bytes_to_hex(session.key_value),
         ap_rep_encrypted_part_key_usage);
 
@@ -2359,7 +2383,14 @@ KerberosApReqValidationResult validate_kerberos_ap_req(
     result.subsession_key_enctype = authenticator->subkey_enctype;
     result.subsession_key = authenticator->subkey_value;
     if ((parsed->ap_options & ap_option_mutual_required) != 0) {
-        result.response_token = ap_rep_token(*session, *authenticator);
+        int acceptor_subkey_enctype = 0;
+        Bytes acceptor_subkey;
+        result.response_token = ap_rep_token(*session, *authenticator, acceptor_subkey_enctype, acceptor_subkey);
+        // Subsequent SMB/LDAP messages are signed with the GSS context key, which the
+        // mutual-auth AP-REP just established as the acceptor subkey — not the ticket
+        // session key — so the signing key the caller caches must be the subkey.
+        result.session_key_enctype = acceptor_subkey_enctype;
+        result.session_key = std::move(acceptor_subkey);
     }
     return result;
 }
