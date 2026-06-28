@@ -577,7 +577,74 @@ std::vector<std::uint8_t> session_setup_response(
     return request.netbios_framed ? add_netbios_frame(packet) : packet;
 }
 
-std::vector<std::uint8_t> spnego_response_token(const std::vector<std::uint8_t>& response_token) {
+// Minimal DER TLV reader: returns the tag plus content/next offsets at `offset`.
+struct DerTlv {
+    bool valid{false};
+    std::uint8_t tag{0};
+    std::size_t content_offset{0};
+    std::size_t content_length{0};
+    std::size_t next_offset{0};
+};
+
+DerTlv der_read(const std::vector<std::uint8_t>& data, std::size_t offset) {
+    DerTlv node;
+    if (offset + 2 > data.size()) {
+        return node;
+    }
+    node.tag = data[offset];
+    std::size_t cursor = offset + 1;
+    std::size_t length = data[cursor++];
+    if ((length & 0x80U) != 0) {
+        const std::size_t count = length & 0x7fU;
+        if (count == 0 || count > 4 || cursor + count > data.size()) {
+            return node;
+        }
+        length = 0;
+        for (std::size_t index = 0; index < count; ++index) {
+            length = (length << 8U) | data[cursor++];
+        }
+    }
+    if (cursor + length > data.size()) {
+        return node;
+    }
+    node.valid = true;
+    node.content_offset = cursor;
+    node.content_length = length;
+    node.next_offset = cursor + length;
+    return node;
+}
+
+// Extracts the DER-encoded MechTypeList (the SEQUENCE OF MechType) from a SPNEGO
+// negTokenInit. The SPNEGO mechListMIC is computed over exactly these bytes.
+std::vector<std::uint8_t> extract_spnego_mech_list(const std::vector<std::uint8_t>& blob) {
+    auto app = der_read(blob, 0);            // [APPLICATION 0] InitialContextToken
+    if (!app.valid || app.tag != 0x60) {
+        return {};
+    }
+    auto oid = der_read(blob, app.content_offset);  // SPNEGO OID
+    if (!oid.valid || oid.tag != 0x06) {
+        return {};
+    }
+    auto neg = der_read(blob, oid.next_offset);     // [0] NegTokenInit
+    if (!neg.valid || neg.tag != 0xa0) {
+        return {};
+    }
+    auto sequence = der_read(blob, neg.content_offset);  // SEQUENCE
+    if (!sequence.valid || sequence.tag != 0x30) {
+        return {};
+    }
+    auto mech_types = der_read(blob, sequence.content_offset);  // [0] mechTypes
+    if (!mech_types.valid || mech_types.tag != 0xa0) {
+        return {};
+    }
+    // The MechTypeList is the SEQUENCE OF MechType held inside the [0] field.
+    return {blob.begin() + static_cast<std::ptrdiff_t>(mech_types.content_offset),
+            blob.begin() + static_cast<std::ptrdiff_t>(mech_types.next_offset)};
+}
+
+std::vector<std::uint8_t> spnego_response_token(
+    const std::vector<std::uint8_t>& response_token,
+    const std::vector<std::uint8_t>& mech_list_mic) {
     // A SPNEGO *response* (the acceptor's reply) is a bare NegTokenResp [1]. Only the
     // initiator's very first token carries the GSS InitialContextToken wrapper
     // ([APPLICATION 0] + SPNEGO OID). Wrapping the response in that header makes
@@ -585,14 +652,20 @@ std::vector<std::uint8_t> spnego_response_token(const std::vector<std::uint8_t>&
     // join then fails with "Paramètre incorrect"), so emit the NegTokenResp directly.
     //
     // The acceptor's first reply MUST also echo supportedMech (the mechanism it
-    // accepted). Without it Windows' GSS layer rejects the token with
-    // SEC_E_INVALID_TOKEN (0x80090006) — NetUseAdd to IPC$ then fails and the domain
-    // join aborts. The optimistic mechToken Windows sends for SMB is MS Kerberos
-    // (1.2.840.48018.1.2.2), so that is the mechanism we accepted.
+    // accepted) and, because Kerberos provides integrity, a mechListMIC over the
+    // initiator's MechTypeList. Without either Windows' GSS layer rejects the token
+    // with SEC_E_INVALID_TOKEN (0x80090006) — NetUseAdd to IPC$ then fails and the
+    // domain join aborts. The optimistic mechToken Windows sends for SMB is MS
+    // Kerberos (1.2.840.48018.1.2.2), so that is the mechanism we accepted.
     const auto neg_state = der_tlv(0xa0, der_tlv(0x0a, {0}));
     const auto supported_mech = der_tlv(0xa1, der_oid({1, 2, 840, 48018, 1, 2, 2}));
     const auto response = der_tlv(0xa2, der_tlv(0x04, response_token));
-    return der_tlv(0xa1, der_tlv(0x30, concat({neg_state, supported_mech, response})));
+    std::vector<std::uint8_t> sequence = concat({neg_state, supported_mech, response});
+    if (!mech_list_mic.empty()) {
+        const auto mic = der_tlv(0xa3, der_tlv(0x04, mech_list_mic));
+        sequence.insert(sequence.end(), mic.begin(), mic.end());
+    }
+    return der_tlv(0xa1, der_tlv(0x30, sequence));
 }
 
 std::vector<std::uint8_t> extract_kerberos_ap_req(const std::vector<std::uint8_t>& security_blob) {
@@ -647,7 +720,15 @@ std::vector<std::uint8_t> session_setup_response(const Smb2RequestInfo& request,
             request.session_id == 0 ? nexus_smb_session_id : request.session_id,
             validation.session_key);
         if (!validation.response_token.empty()) {
-            return session_setup_response(request, spnego_response_token(validation.response_token));
+            // Protect the negotiation with a SPNEGO mechListMIC over the initiator's
+            // MechTypeList, keyed by the GSS context (acceptor) subkey that the AP-REP
+            // established. Windows requires it or rejects with SEC_E_INVALID_TOKEN.
+            const auto mech_list = extract_spnego_mech_list(request.security_blob);
+            const auto mech_list_mic = mech_list.empty()
+                ? std::vector<std::uint8_t>{}
+                : kerberos_gss_acceptor_mic(validation.session_key, mech_list);
+            return session_setup_response(
+                request, spnego_response_token(validation.response_token, mech_list_mic));
         }
     }
     return session_setup_response(request);

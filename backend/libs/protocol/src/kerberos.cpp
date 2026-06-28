@@ -2178,6 +2178,29 @@ Bytes kpasswd_error_reply(
 
 }  // namespace
 
+std::vector<std::uint8_t> kerberos_gss_acceptor_mic(
+    const std::vector<std::uint8_t>& subkey,
+    const std::vector<std::uint8_t>& message) {
+    if (subkey.empty()) {
+        return {};
+    }
+    // RFC 4121 §4.2.6.1 GSS per-message MIC token using the acceptor subkey. The
+    // SPNEGO mechListMIC is such a MIC computed over the DER-encoded MechTypeList;
+    // Windows requires it in the accept-completed reply (the chosen mechanism,
+    // Kerberos, provides integrity) and otherwise rejects with SEC_E_INVALID_TOKEN.
+    constexpr int kg_usage_acceptor_sign = 23;
+    const auto checksum_key = kerberos_dk(subkey, key_usage_constant(kg_usage_acceptor_sign, 0x99));
+    // Header: TOK_ID=0x0404, Flags=0x05 (SentByAcceptor|AcceptorSubkey), Filler=0xFF*5,
+    // SND_SEQ=0 (8 bytes). The checksum covers message || header.
+    std::vector<std::uint8_t> header{0x04, 0x04, 0x05, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0};
+    std::vector<std::uint8_t> to_sign(message.begin(), message.end());
+    to_sign.insert(to_sign.end(), header.begin(), header.end());
+    const auto checksum = kerberos_hmac_sha1_96(checksum_key, to_sign);
+    std::vector<std::uint8_t> token = std::move(header);
+    token.insert(token.end(), checksum.begin(), checksum.end());
+    return token;
+}
+
 std::vector<std::uint8_t> kerberos_encrypt_aes_cts_hmac_sha1(
     const std::vector<std::uint8_t>& plaintext,
     const std::string& key_hex,

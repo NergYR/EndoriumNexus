@@ -101,6 +101,13 @@ using KerberosPasswordChangeHandler = std::function<bool(const KerberosPasswordC
     int key_usage,
     const std::vector<std::uint8_t>& confounder = {});
 
+// Computes an RFC 4121 GSS MIC token (acceptor, key usage 23) over `message` using the
+// AES sub-session key `subkey_hex`. Used to build the SPNEGO mechListMIC that Windows
+// requires in the SMB/LDAP session-setup acceptor reply.
+[[nodiscard]] std::vector<std::uint8_t> kerberos_gss_acceptor_mic(
+    const std::vector<std::uint8_t>& subkey,
+    const std::vector<std::uint8_t>& message);
+
 [[nodiscard]] std::vector<std::uint8_t> kerberos_minimal_pac(
     const std::string& client_principal,
     const std::string& realm,
