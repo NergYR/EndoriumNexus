@@ -1131,11 +1131,12 @@ TestBytes test_smb2_ioctl_request(
     std::uint64_t file_id_persistent,
     std::uint64_t file_id_volatile,
     std::uint64_t message_id = 106,
-    std::uint32_t max_output_response = 4280) {
+    std::uint32_t max_output_response = 4280,
+    std::uint32_t ctl_code = 0x0011c017U) {
     TestBytes body;
     test_rpc_write_u16(body, 57);
     test_rpc_write_u16(body, 0);
-    test_rpc_write_u32(body, 0x0011c017U);
+    test_rpc_write_u32(body, ctl_code);
     test_smb2_write_u64(body, file_id_persistent);
     test_smb2_write_u64(body, file_id_volatile);
     test_rpc_write_u32(body, 120);
@@ -4485,6 +4486,25 @@ int main() {
             80));
     assert(test_rpc_read_u32(smb_srvsvc_small_ioctl, 4 + 8) == 0);
     assert(test_rpc_read_u32(smb_srvsvc_small_ioctl, 4 + 64 + 36) == 80);
+    // FSCTL_VALIDATE_NEGOTIATE_INFO must echo the negotiated parameters (Capabilities,
+    // GUID, SecurityMode, Dialect) with STATUS_SUCCESS, otherwise Windows tears the SMB
+    // connection down and the domain join fails with a bogus Int32 OverflowException.
+    TestBytes validate_negotiate_input;
+    test_rpc_write_u32(validate_negotiate_input, 0);            // Capabilities
+    validate_negotiate_input.insert(validate_negotiate_input.end(), 16, 0xaa);  // client GUID
+    test_rpc_write_u16(validate_negotiate_input, 1);           // SecurityMode
+    test_rpc_write_u16(validate_negotiate_input, 3);           // DialectCount
+    test_rpc_write_u16(validate_negotiate_input, 0x0202);
+    test_rpc_write_u16(validate_negotiate_input, 0x0210);
+    test_rpc_write_u16(validate_negotiate_input, 0x0302);
+    const auto smb_validate_negotiate = protocol::smb2_response(test_smb2_ioctl_request(
+        validate_negotiate_input, 1, smb_session_id, 0xffffffffffffffffULL, 0xffffffffffffffffULL, 130, 4280,
+        0x00140204U));
+    assert(test_rpc_read_u32(smb_validate_negotiate, 4 + 8) == 0);  // STATUS_SUCCESS
+    const auto validate_negotiate_out_offset = test_rpc_read_u32(smb_validate_negotiate, 4 + 64 + 32);
+    assert(test_rpc_read_u32(smb_validate_negotiate, 4 + 64 + 36) == 24);
+    // SMB 2.1 is the dialect we prefer, so the echoed dialect must be 0x0210.
+    assert(test_rpc_read_u16(smb_validate_negotiate, 4 + validate_negotiate_out_offset + 22) == 0x0210);
     const auto smb_srvsvc_remainder_read = protocol::smb2_response(
         test_smb2_read_request(1, smb_session_id, srvsvc_file_id_persistent, srvsvc_file_id_volatile, 32, 0, 128));
     assert(test_rpc_read_u32(smb_srvsvc_remainder_read, 4 + 8) == 0);

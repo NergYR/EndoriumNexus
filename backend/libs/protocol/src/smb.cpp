@@ -55,6 +55,7 @@ constexpr std::uint32_t nexus_smb_ipc_tree_id = 1;
 constexpr std::uint32_t nexus_smb_sysvol_tree_id = 2;
 constexpr std::uint32_t nexus_smb_netlogon_tree_id = 3;
 constexpr std::uint32_t fsctl_pipe_transceive = 0x0011c017U;
+constexpr std::uint32_t fsctl_validate_negotiate_info = 0x00140204U;
 constexpr std::uint32_t fs_file_persistent_acls = 0x00000008U;
 constexpr std::uint32_t fs_file_unicode_on_disk = 0x00000004U;
 constexpr std::uint32_t fs_file_case_preserved_names = 0x00000002U;
@@ -1690,7 +1691,61 @@ std::vector<std::uint8_t> write_response(const Smb2RequestInfo& request, const S
     return request.netbios_framed ? add_netbios_frame(packet) : packet;
 }
 
+std::vector<std::uint8_t> validate_negotiate_response(const Smb2RequestInfo& request) {
+    // FSCTL_VALIDATE_NEGOTIATE_INFO ("secure negotiate"): the client re-sends the
+    // dialects/capabilities it offered and expects the server to echo back the
+    // parameters it negotiated. If the server can't (we used to answer
+    // STATUS_NOT_SUPPORTED), Windows tears the connection down — which aborts the
+    // domain join (surfaced as a bogus Int32 OverflowException in Add-Computer). These
+    // values must match negotiate_response(): Capabilities=0, the server GUID,
+    // SecurityMode=signing-enabled, and the negotiated dialect.
+    std::uint16_t dialect = 0x0210;
+    if (request.ioctl_input.size() >= 24) {
+        const auto dialect_count = read_u16(request.ioctl_input, 22);
+        std::vector<std::uint16_t> offered;
+        for (std::size_t index = 0; index < dialect_count && 24 + index * 2 + 1 < request.ioctl_input.size(); ++index) {
+            offered.push_back(read_u16(request.ioctl_input, 24 + index * 2));
+        }
+        if (const auto chosen = choose_dialect(offered); chosen != 0) {
+            dialect = chosen;
+        }
+    }
+
+    std::vector<std::uint8_t> output;
+    write_u32(output, 0);  // Capabilities (matches negotiate_response)
+    output.insert(output.end(), {
+        0x45, 0x4e, 0x44, 0x4f, 0x52, 0x49, 0x55, 0x4d,
+        0x4e, 0x45, 0x58, 0x55, 0x53, 0x41, 0x44, 0x31,
+    });                    // ServerGuid
+    write_u16(output, 1);  // SecurityMode (signing enabled)
+    write_u16(output, dialect);
+
+    const std::uint32_t buffer_offset = 64 + 48;
+    auto packet = smb2_header(
+        request,
+        smb2_status_success,
+        smb2_command_ioctl,
+        request.tree_id,
+        request.session_id);
+    write_u16(packet, 49);
+    write_u16(packet, 0);
+    write_u32(packet, request.ioctl_ctl_code);
+    write_u64(packet, request.file_id_persistent);
+    write_u64(packet, request.file_id_volatile);
+    write_u32(packet, buffer_offset);  // InputOffset
+    write_u32(packet, 0);              // InputCount
+    write_u32(packet, buffer_offset);  // OutputOffset
+    write_u32(packet, static_cast<std::uint32_t>(output.size()));
+    write_u32(packet, 0);              // Flags
+    write_u32(packet, 0);              // Reserved2
+    packet.insert(packet.end(), output.begin(), output.end());
+    return request.netbios_framed ? add_netbios_frame(packet) : packet;
+}
+
 std::vector<std::uint8_t> ioctl_response(const Smb2RequestInfo& request, const Smb2RuntimeInfo& runtime) {
+    if (request.ioctl_ctl_code == fsctl_validate_negotiate_info) {
+        return validate_negotiate_response(request);
+    }
     if (request.ioctl_ctl_code != fsctl_pipe_transceive || request.tree_id != nexus_smb_ipc_tree_id) {
         return error_response(request, smb2_status_not_supported);
     }
