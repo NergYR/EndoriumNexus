@@ -571,13 +571,14 @@ std::vector<std::uint8_t> session_setup_response(
 }
 
 std::vector<std::uint8_t> spnego_response_token(const std::vector<std::uint8_t>& response_token) {
+    // A SPNEGO *response* (the acceptor's reply) is a bare NegTokenResp [1]. Only the
+    // initiator's very first token carries the GSS InitialContextToken wrapper
+    // ([APPLICATION 0] + SPNEGO OID). Wrapping the response in that header makes
+    // Windows reject the SMB session-setup with STATUS_INVALID_PARAMETER (the domain
+    // join then fails with "Paramètre incorrect"), so emit the NegTokenResp directly.
     const auto neg_state = der_tlv(0xa0, der_tlv(0x0a, {0}));
     const auto response = der_tlv(0xa2, der_tlv(0x04, response_token));
-    const auto neg_token_resp = der_tlv(0xa1, der_tlv(0x30, concat({neg_state, response})));
-    return der_tlv(0x60, concat({
-        der_oid({1, 3, 6, 1, 5, 5, 2}),
-        neg_token_resp,
-    }));
+    return der_tlv(0xa1, der_tlv(0x30, concat({neg_state, response})));
 }
 
 std::vector<std::uint8_t> extract_kerberos_ap_req(const std::vector<std::uint8_t>& security_blob) {

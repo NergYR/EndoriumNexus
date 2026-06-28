@@ -5116,7 +5116,11 @@ int main() {
     const auto smb_mutual_security_length = test_rpc_read_u16(smb_mutual_kerberos_session_response, 4 + 64 + 6);
     assert(smb_mutual_security_offset == 72);
     assert(smb_mutual_security_length > 0);
-    assert(smb_mutual_kerberos_session_response[4 + smb_mutual_security_offset] == 0x60);
+    // The session-setup response carries a bare SPNEGO NegTokenResp [1] (0xa1), not a
+    // GSS InitialContextToken (0x60) — that wrapper is only for the initiator's first
+    // token, and wrapping the response makes Windows reject the join with
+    // STATUS_INVALID_PARAMETER.
+    assert(smb_mutual_kerberos_session_response[4 + smb_mutual_security_offset] == 0xa1);
     assert(std::find(smb_mutual_kerberos_session_response.begin(), smb_mutual_kerberos_session_response.end(), 0x6f) !=
            smb_mutual_kerberos_session_response.end());
     const auto smb_invalid_kerberos_session_response = protocol::smb2_response(
