@@ -583,9 +583,16 @@ std::vector<std::uint8_t> spnego_response_token(const std::vector<std::uint8_t>&
     // ([APPLICATION 0] + SPNEGO OID). Wrapping the response in that header makes
     // Windows reject the SMB session-setup with STATUS_INVALID_PARAMETER (the domain
     // join then fails with "Paramètre incorrect"), so emit the NegTokenResp directly.
+    //
+    // The acceptor's first reply MUST also echo supportedMech (the mechanism it
+    // accepted). Without it Windows' GSS layer rejects the token with
+    // SEC_E_INVALID_TOKEN (0x80090006) — NetUseAdd to IPC$ then fails and the domain
+    // join aborts. The optimistic mechToken Windows sends for SMB is MS Kerberos
+    // (1.2.840.48018.1.2.2), so that is the mechanism we accepted.
     const auto neg_state = der_tlv(0xa0, der_tlv(0x0a, {0}));
+    const auto supported_mech = der_tlv(0xa1, der_oid({1, 2, 840, 48018, 1, 2, 2}));
     const auto response = der_tlv(0xa2, der_tlv(0x04, response_token));
-    return der_tlv(0xa1, der_tlv(0x30, concat({neg_state, response})));
+    return der_tlv(0xa1, der_tlv(0x30, concat({neg_state, supported_mech, response})));
 }
 
 std::vector<std::uint8_t> extract_kerberos_ap_req(const std::vector<std::uint8_t>& security_blob) {
